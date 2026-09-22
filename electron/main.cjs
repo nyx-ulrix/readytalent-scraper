@@ -1,0 +1,202 @@
+/**
+ * AutoResume desktop shell.
+ * - Serves the built UI + /api on the LAN (port 4242) so a tablet can open it too.
+ * - Opens ReadyTalent in an in-memory session (fresh sign-in every launch) and scrapes from it.
+ * - Saves jobs.json / state.json in the user data folder.
+ */
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const scrapeInPage = require("./scrape.cjs");
+
+const PORT = 4242;
+const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
+const DIST = path.join(__dirname, "..", "dist");
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json", ".json": "application/json" };
+
+const file = (n) => path.join(app.getPath("userData"), n);
+const readJson = (n, d) => { try { return JSON.parse(fs.readFileSync(file(n), "utf8")); } catch { return d; } };
+const writeJson = (n, v) => fs.writeFileSync(file(n), JSON.stringify(v, null, 2));
+
+let mainWin = null;
+let rtWin = null;
+
+function lanUrls() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list || []) if (i.family === "IPv4" && !i.internal) out.push(`http://${i.address}:${PORT}`);
+  }
+  return out;
+}
+
+function json(res, body, status = 200) {
+  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+function serve() {
+  return new Promise((resolve, reject) => {
+    const srv = http.createServer((req, res) => {
+      const url = new URL(req.url, "http://x");
+      if (url.pathname === "/api/jobs") return json(res, readJson("jobs.json", []));
+      if (url.pathname === "/api/meta") return json(res, readJson("meta.json", { employmentTypes: [], programmes: [] }));
+      if (url.pathname === "/api/info") return json(res, { lan: lanUrls() });
+      if (url.pathname === "/api/state") {
+        if (req.method === "GET") return json(res, readJson("state.json", null));
+        if (req.method === "PUT") {
+          let body = "";
+          req.on("data", (c) => { body += c; if (body.length > 5e6) req.destroy(); });
+          req.on("end", () => {
+            try { writeJson("state.json", JSON.parse(body)); json(res, { ok: true }); }
+            catch { json(res, { error: "bad json" }, 400); }
+          });
+          return;
+        }
+      }
+      let p = path.normalize(path.join(DIST, url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname)));
+      if (!p.startsWith(DIST)) return json(res, { error: "forbidden" }, 403);
+      if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(DIST, "index.html");
+      res.writeHead(200, { "Content-Type": MIME[path.extname(p)] || "application/octet-stream" });
+      fs.createReadStream(p).pipe(res);
+    });
+    srv.on("error", reject);
+    srv.listen(PORT, "0.0.0.0", resolve);
+  });
+}
+
+/* ---- ReadyTalent sign-in credentials: encrypted with the Windows user account (DPAPI), never sent to the LAN ---- */
+const CREDS = () => file("creds.bin");
+function readCreds() {
+  try { return JSON.parse(safeStorage.decryptString(fs.readFileSync(CREDS()))); } catch { return null; }
+}
+ipcMain.handle("creds:set", (_e, { user, pass }) => {
+  if (!user || !pass) { try { fs.unlinkSync(CREDS()); } catch { /* none */ } return { user: "" }; }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("Windows credential encryption is unavailable on this machine.");
+  fs.writeFileSync(CREDS(), safeStorage.encryptString(JSON.stringify({ user, pass })));
+  return { user };
+});
+ipcMain.handle("creds:get", () => ({ user: readCreds()?.user || "" }));
+
+function portalWindow(show) {
+  if (rtWin && !rtWin.isDestroyed()) { if (show) rtWin.show(); return rtWin; }
+  rtWin = new BrowserWindow({
+    width: 1100, height: 820, show, title: "ReadyTalent",
+    // No "persist:" prefix => in-memory cookies => fresh sign-in every launch.
+    webPreferences: { partition: "readytalent", contextIsolation: true, nodeIntegration: false },
+  });
+  rtWin.loadURL(PORTAL);
+  rtWin.on("closed", () => { rtWin = null; });
+  return rtWin;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Poll `fn` (may throw while the page is navigating) until truthy. */
+async function waitUntil(fn, timeoutMs, what) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    try { const v = await fn(); if (v) return v; } catch { /* navigating */ }
+    await sleep(500);
+  }
+  throw new Error(`Timed out waiting for ${what}`);
+}
+
+async function isSignedIn() {
+  if (!rtWin || rtWin.isDestroyed()) return false;
+  const wc = rtWin.webContents;
+  if (!wc.getURL().startsWith(PORTAL)) return false;
+  return wc.executeJavaScript("!!sessionStorage.getItem('StudentId')", true).catch(() => false);
+}
+
+/** Drive the portal's own "Staff / Student / Alumni" button and the SIT ADFS form with the saved credentials. */
+async function autoLogin(creds) {
+  const win = portalWindow(false);
+  const wc = win.webContents;
+  await wc.loadURL(PORTAL);
+  await wc.executeJavaScript("typeof checkAuth === 'function' ? checkAuth() : document.querySelector(\"button[title*='ADFS']\").click()", true);
+  await waitUntil(() => wc.getURL().includes("fs.singaporetech.edu.sg") && wc.executeJavaScript("!!(document.getElementById('passwordInput') || document.querySelector('input[name=Password]'))", true), 30000, "the SIT sign-in page");
+  await wc.executeJavaScript(`((u, p) => {
+    const q = (id, name) => document.getElementById(id) || document.querySelector('input[name=' + name + ']');
+    const a = q('userNameInput', 'UserName'), b = q('passwordInput', 'Password');
+    a.value = u; b.value = p;
+    for (const el of [a, b]) el.dispatchEvent(new Event('input', { bubbles: true }));
+    (document.getElementById('submitButton') || b.form.querySelector('[type=submit]')).click();
+  })(${JSON.stringify(creds.user)}, ${JSON.stringify(creds.pass)})`, true);
+  await waitUntil(async () => {
+    if (await isSignedIn()) return true;
+    if (wc.getURL().includes("fs.singaporetech.edu.sg")) {
+      const err = await wc.executeJavaScript("(document.getElementById('errorText') || {}).textContent || ''", true);
+      if (err.trim()) throw new Error("SIT sign-in failed: " + err.trim());
+    }
+    return false;
+  }, 60000, "ReadyTalent to finish signing in").catch((err) => {
+    win.show(); // MFA prompt or unexpected page: let the user finish by hand
+    throw new Error(`${err.message}. The ReadyTalent window is open - finish signing in there, then click Scrape again.`);
+  });
+}
+
+ipcMain.handle("rt:open", () => { portalWindow(true); });
+
+ipcMain.handle("rt:scrape", async (e) => {
+  if (!(await isSignedIn())) {
+    const creds = readCreds();
+    if (!creds) {
+      portalWindow(true);
+      throw new Error("Save your ReadyTalent sign-in in Settings for automatic sign-in, or sign in in the window that opened and click Scrape again.");
+    }
+    e.sender.send("rt:progress", { i: 0, n: 0, msg: `Signing in to ReadyTalent as ${creds.user}…` });
+    await autoLogin(creds);
+  }
+  const wc = rtWin.webContents;
+  const jobs = readJson("jobs.json", []);
+  const onMsg = (ev, ...rest) => {
+    const text = ev && typeof ev.message === "string" ? ev.message : String(rest[1] ?? "");
+    if (!text.startsWith("AP_PROGRESS")) return;
+    const [, i, n] = text.split(" ");
+    e.sender.send("rt:progress", { i: Number(i), n: Number(n) });
+  };
+  wc.on("console-message", onMsg);
+  try {
+    const r = await wc.executeJavaScript(`(${scrapeInPage.toString()})(${JSON.stringify(jobs.map((j) => j.id))})`, true);
+    const active = new Set(r.activeIds);
+    const merged = [...r.jobs, ...jobs].map((j) => ({ ...j, expired: !active.has(j.id) }));
+    writeJson("jobs.json", merged);
+    if (r.meta.employmentTypes.length || r.meta.programmes.length) writeJson("meta.json", r.meta);
+    return { added: r.jobs.length, total: merged.length };
+  } finally {
+    wc.off("console-message", onMsg);
+  }
+});
+
+ipcMain.handle("pdf:save", async (e, name) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { filePath } = await dialog.showSaveDialog(win, { defaultPath: `${name || "resume"}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+  if (!filePath) return false;
+  const pdf = await e.sender.printToPDF({ pageSize: "A4", printBackground: true, margins: { marginType: "none" } });
+  fs.writeFileSync(filePath, pdf);
+  shell.showItemInFolder(filePath);
+  return true;
+});
+
+async function boot() {
+  try { await serve(); } catch (err) {
+    dialog.showErrorBox("AutoResume", `Port ${PORT} is busy: ${err.message}`);
+    app.quit();
+    return;
+  }
+  mainWin = new BrowserWindow({
+    width: 1240, height: 840, minWidth: 800, title: "AutoResume", backgroundColor: "#ffffff",
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
+  });
+  mainWin.setMenuBarVisibility(false);
+  mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  await mainWin.loadURL(`http://127.0.0.1:${PORT}/`);
+}
+
+if (!app.requestSingleInstanceLock()) app.quit();
+else {
+  app.on("second-instance", () => mainWin?.focus());
+  app.whenReady().then(boot);
+  app.on("window-all-closed", () => app.quit());
+}
