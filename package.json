@@ -10,15 +10,61 @@
     "dev": "vite",
     "build": "vite build",
     "start": "vite build && electron .",
-    "dist": "vite build && electron-builder --win nsis"
+    "dist": "vite build && electron-builder --win nsis",
+    "test": "node test/boards.test.cjs && node test/ground.test.ts && node test/markdown.test.ts && node test/pay.test.ts && node test/linkify.test.ts && node electron/scrape.test.cjs",
+    "dist:win": "vite build && electron-builder --win nsis --publish never",
+    "dist:mac": "vite build && electron-builder --mac dmg zip --publish never"
   },
   "build": {
     "appId": "app.autoresume",
     "productName": "AutoResume",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis", "icon": "public/icon-512.png", "artifactName": "AutoResume-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "shortcutName": "AutoResume" }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/**/*.test.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon-512.png",
+      "artifactName": "AutoResume-Setup-${version}-win-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "AutoResume"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.icns",
+      "category": "public.app-category.productivity",
+      "artifactName": "AutoResume-${version}-mac-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "AutoResume ${version}"
+    }
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
@@ -30,5 +76,10 @@
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",
     "vite": "^8.0.0"
+  },
+  "packageManager": "pnpm@11.6.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nyx-ulrix/readytalent-scraper.git"
   }
 }

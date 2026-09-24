@@ -222,24 +222,31 @@ ipcMain.handle("pdf:save", async (e, name) => {
   return true;
 });
 
+function createMainWindow() {
+  mainWin = new BrowserWindow({
+    width: 1240, height: 840, minWidth: 800, title: "AutoResume", backgroundColor: "#ffffff",
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
+  });
+  mainWin.setMenuBarVisibility(false); // Windows/Linux; macOS keeps its app menu (needed for Cmd+C / Cmd+V)
+  mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  mainWin.on("closed", () => { mainWin = null; });
+  return mainWin.loadURL(`http://127.0.0.1:${PORT}/`);
+}
+
 async function boot() {
   try { await serve(); } catch (err) {
     dialog.showErrorBox("AutoResume", `Port ${PORT} is busy: ${err.message}`);
     app.quit();
     return;
   }
-  mainWin = new BrowserWindow({
-    width: 1240, height: 840, minWidth: 800, title: "AutoResume", backgroundColor: "#ffffff",
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
-  });
-  mainWin.setMenuBarVisibility(false);
-  mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
-  await mainWin.loadURL(`http://127.0.0.1:${PORT}/`);
+  await createMainWindow();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on("second-instance", () => mainWin?.focus());
+  app.on("second-instance", () => { if (mainWin) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); } });
   app.whenReady().then(boot);
-  app.on("window-all-closed", () => app.quit());
+  // macOS convention: closing the window keeps the app (and the tablet server) running; the dock icon reopens it.
+  app.on("activate", () => { if (app.isReady() && !mainWin) void createMainWindow(); });
+  app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 }
