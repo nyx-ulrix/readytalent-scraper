@@ -11,6 +11,8 @@ Install `release/AutoResume-Setup-*.exe` (or `pnpm install && pnpm start` to run
 3. Filter with the **Employment Types** and **Programmes** dropdowns, copied from the portal's own search page during scraping.
 4. Open a job → **ATS keywords** / **Tailor resume** / **Cover letter**. Results open in the Resume tab; **Save PDF (A4)**.
 
+**Resume import and templates.** Settings → **Upload resume** accepts PDF, images and Markdown (`.md`); the chosen AI provider reads and OCRs them. **Download .md template** exports your details in AutoResume's Markdown format; edit it in any text editor and upload it back, and it imports exactly with no AI key. The default A4 template is **Standard** (Times New Roman, ruled section headings, location and dates on the right); Classic, Modern and Compact are also available. Besides Education, Work Experience and Projects you can add any number of custom sections (Competition, Leadership…) and labelled skill lines (Soft Skills, Interests…).
+
 Windows Firewall will ask to allow AutoResume on the first launch; allow it so the tablet can connect.
 
 ## Tablet (Android / iPad)
@@ -24,6 +26,7 @@ pnpm install
 pnpm dev                       # browser-only UI on :5173 (proxies /api to a running desktop app)
 pnpm start                     # build + run Electron
 node electron/scrape.test.cjs  # scraper self-check against a fake portal API
+node test/markdown.test.ts     # Markdown template round-trip self-check (Node 22.6+)
 pnpm dist                      # Windows installer -> release/
 ```
 

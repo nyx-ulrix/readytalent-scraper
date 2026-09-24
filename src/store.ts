@@ -12,7 +12,10 @@ async function load(): Promise<State> {
     if (r.ok) s = await r.json();
   } catch { /* offline from laptop: fall back to this device */ }
   if (!s) { try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch { /* ignore */ } }
-  return { ...defaultState, ...(s || {}), profile: { ...defaultState.profile, ...(s?.profile || {}) } };
+  const merged: State = { ...defaultState, ...(s || {}), profile: { ...defaultState.profile, ...(s?.profile || {}) } };
+  // One-time switch of older saved state to the new default template.
+  if ((s?.defaultsVersion ?? 1) < 2) { merged.template = "standard"; merged.defaultsVersion = 2; }
+  return merged;
 }
 
 /** State lives in localStorage on every device and mirrors to the laptop's state.json when reachable. */

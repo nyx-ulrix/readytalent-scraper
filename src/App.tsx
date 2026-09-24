@@ -5,6 +5,7 @@ import { PROVIDERS, coverLetter, extractKeywords, matchKeywords, parseResume, ta
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
 const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]] });
 import { LetterPage, ResumePage } from "./Resume";
+import { toMarkdown } from "./markdown";
 import { DEFAULT_META, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
 type Tab = "jobs" | "resume" | "settings";
@@ -285,6 +286,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
           {Object.keys(state.covers).map((id) => <option key={id} value={`letter:${id}`}>Cover letter · {label(id)}</option>)}
         </select>
         <select value={state.template} onChange={(e) => update({ template: e.target.value as Template })}>
+          <option value="standard">Standard</option>
           <option value="classic">Classic</option>
           <option value="modern">Modern</option>
           <option value="compact">Compact</option>
@@ -360,10 +362,10 @@ function Settings({ state, update }: { state: State; update: Update }) {
       </div>
 
       <h2>Your details</h2>
-      <div className="small muted">Import from your current resume (PDF or photo; Gemini reads and OCRs it), then check the fields below.</div>
+      <div className="small muted">Import from your current resume (PDF, photo or Markdown .md; the AI reads and OCRs it), then check the fields below.</div>
       <div className="actions">
-        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>{importing ? "Reading resume…" : "Upload resume (PDF / image)"}</span>
-          <input type="file" accept="application/pdf,image/*" style={{ display: "none" }} disabled={importing} onChange={async (e) => {
+        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>{importing ? "Reading resume…" : "Upload resume (PDF / image / MD)"}</span>
+          <input type="file" accept="application/pdf,image/*,.md,.markdown,.txt,text/markdown,text/plain" style={{ display: "none" }} disabled={importing} onChange={async (e) => {
             const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
             setImporting(true); setImportStatus("");
             try { const parsed = await parseResume(aiCfg(state), f); update({ profile: parsed }); setImportStatus(`Imported ${f.name}. Review the fields below.`); }
@@ -371,8 +373,14 @@ function Settings({ state, update }: { state: State; update: Update }) {
             setImporting(false);
           }} />
         </label>
+        <button className="ghost" onClick={() => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([toMarkdown(p)], { type: "text/markdown" }));
+          a.download = `${p.name || "resume"}.md`; a.click();
+        }}>Download .md template</button>
         <span className="status">{importStatus}</span>
       </div>
+      <div className="small muted">The .md template holds your current details. Edit it in any text editor and upload it back; that format imports instantly without an AI key.</div>
       <div className="grid2">
         {field("name", "Full name")}
         {field("email", "Email")}
@@ -383,13 +391,25 @@ function Settings({ state, update }: { state: State; update: Update }) {
       <label>Summary</label>
       <textarea value={p.summary} onChange={(e) => setP({ summary: e.target.value })} placeholder="2-3 lines about you. Gemini rewrites this per job." />
       <label>Skills (comma separated)</label>
-      <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+      <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()) })} onBlur={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
 
       <EntryList title="Experience" items={p.experience} onChange={(experience) => setP({ experience })} />
       <EntryList title="Projects" items={p.projects} onChange={(projects) => setP({ projects })} />
       <EntryList title="Education" items={p.education} onChange={(education) => setP({ education })} />
+      {(p.sections || []).map((sec, si) => (
+        <div key={si}>
+          <div className="row" style={{ marginTop: 26 }}>
+            <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
+            <button className="ghost" onClick={() => setP({ sections: p.sections.filter((_, j) => j !== si) })}>Remove section</button>
+          </div>
+          <EntryList title={sec.title || "Entries"} items={sec.entries} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
+        </div>
+      ))}
+      <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
       <label>Awards & certifications (one per line)</label>
       <textarea value={p.awards.join("\n")} onChange={(e) => setP({ awards: e.target.value.split("\n") })} onBlur={(e) => setP({ awards: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
+      <label>Other skill lines, one per line (e.g. "Soft Skills: Analytical Thinking | Communication", "Interests: Data Analytics")</label>
+      <textarea value={(p.additional || []).join("\n")} onChange={(e) => setP({ additional: e.target.value.split("\n") })} onBlur={(e) => setP({ additional: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
 
       {isDesktop() && (
         <>
@@ -449,7 +469,8 @@ function EntryList({ title, items, onChange }: { title: string; items: Entry[]; 
         <div className="card" key={i}>
           <div className="row">
             <input placeholder={title === "Education" ? "Degree" : "Role / project name"} value={e.title} onChange={(ev) => set(i, { title: ev.target.value })} />
-            <input placeholder="Organisation" value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
+            <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
+            <input placeholder="Location" value={e.location || ""} onChange={(ev) => set(i, { location: ev.target.value })} />
             <input placeholder="Dates (e.g. Jan 2024 – Present)" value={e.dates} onChange={(ev) => set(i, { dates: ev.target.value })} />
             <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>

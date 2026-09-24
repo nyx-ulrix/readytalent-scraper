@@ -115,6 +115,23 @@ button.chip { cursor: pointer; color: var(--fg); }
 .tpl-compact h2 { font-size: 10pt; margin: 8pt 0 3pt; }
 .tpl-compact .entry { margin-bottom: 4pt; }
 
+/* Standard: mirrors the user's Word resume (Times New Roman, 10mm x 7.5mm margins, 8pt body, 13pt ruled headings). */
+.tpl-standard { font-family: "Times New Roman", Times, serif; font-size: 8pt; line-height: 1.3; padding: 10mm 7.5mm; }
+.tpl-standard header { text-align: center; margin-bottom: 2pt; }
+.tpl-standard h1 { font-size: 18pt; line-height: 1.2; }
+.tpl-standard .contact { display: block; font-size: 9pt; color: #111; margin-top: 1pt; }
+.tpl-standard .contact a { color: #1155cc; text-decoration: underline; }
+.tpl-standard h2 { font-size: 13pt; text-transform: none; letter-spacing: 0; margin: 7pt 0 4pt; padding-bottom: 0; border-bottom: 2px solid #000; line-height: 1.2; }
+.tpl-standard .entry { display: flow-root; margin-bottom: 5pt; }
+.tpl-standard .entry .rmeta { float: right; text-align: right; margin-left: 12pt; line-height: 1.5; }
+.tpl-standard .entry .line { font-weight: 700; line-height: 1.5; }
+.tpl-standard ul { list-style: none; padding-left: 0; margin: 0; }
+.tpl-standard li { margin: 0; }
+.tpl-standard li::before { content: "• "; }
+.tpl-standard .line-plain { line-height: 1.55; }
+.tpl-standard p { margin: 0 0 3pt; }
+.tpl-standard.letter { font-size: 11pt; line-height: 1.45; padding: 18mm 20mm; }
+
 /* Print: only the page */
 @page { size: A4; margin: 0; }
 @media print {

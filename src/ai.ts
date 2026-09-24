@@ -1,4 +1,5 @@
 import type { Job, Profile } from "./types";
+import { fromMarkdown } from "./markdown";
 
 export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
 export type AiConfig = { provider: Provider; key: string };
@@ -96,28 +97,55 @@ export function matchKeywords(keywords: string[], text: string) {
   return { hit, miss: keywords.filter((k) => !hit.includes(k)) };
 }
 
+/** The profile JSON shape, spelled out for the model. */
+const PROFILE_SHAPE = `name, email, phone, location, links (all links joined with " · "), summary, skills (string[]: technical skills only), experience, projects, education (arrays of entries), awards (string[]: certifications and awards), sections (array of {title, entries} for any other section such as "Competition" or "Leadership & Co-Curricular Activities"), additional (string[] of labelled lines such as "Soft Skills: A | B" or "Interests: X, Y"). Every entry is {title, org, location, dates, details: string[]}; for education, title is the degree and org is the school (with faculty); for experience, title is the role and org is the company; for projects, title is the project name and org is the tech stack.`;
+
+const arrOr = <T,>(v: unknown, fb: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fb);
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+
 export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[]): Promise<Profile> {
-  const out = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same shape and keys as the profile (name, email, phone, location, links, summary, skills[], experience[], education[], projects[], awards[]; entries have title, org, dates, details[]).
-Rules: keep contact details, employers, dates and degrees unchanged. Write a 3-line summary targeted at the role. Reorder skills so the job's keywords the candidate genuinely has come first; add a keyword only if the candidate's history clearly shows it. Rewrite bullets with strong action verbs and measurable impact, weaving in the ATS keywords naturally. Fit one A4 page (max ~4 bullets per entry).
+  const out = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same keys as the profile: ${PROFILE_SHAPE}
+Rules: keep contact details, employers, schools, locations, dates and degrees unchanged, and keep every section. Write a 3-line summary targeted at the role. Reorder skills so the job's keywords the candidate genuinely has come first; add a keyword only if the candidate's history clearly shows it. Rewrite bullets with strong action verbs and measurable impact, weaving in the ATS keywords naturally. Fit one A4 page (max ~4 bullets per entry).
 ATS keywords: ${JSON.stringify(keywords)}
 Profile: ${JSON.stringify(profile)}
 Job: ${jobText(job)}`, SYSTEM, true);
   const p = JSON.parse(out) as Partial<Profile>;
-  const arr = <T,>(v: unknown, fb: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fb);
-  return { ...profile, ...p, skills: arr(p.skills, profile.skills), experience: arr(p.experience, profile.experience), education: arr(p.education, profile.education), projects: arr(p.projects, profile.projects), awards: arr(p.awards, profile.awards) };
+  return {
+    ...profile, ...p,
+    skills: arrOr(p.skills, profile.skills), experience: arrOr(p.experience, profile.experience), education: arrOr(p.education, profile.education),
+    projects: arrOr(p.projects, profile.projects), awards: arrOr(p.awards, profile.awards),
+    sections: arrOr(p.sections, profile.sections || []), additional: arrOr(p.additional, profile.additional || []),
+  };
 }
 
-/** OCR + parse an existing resume (PDF or image) into the profile shape. The model reads the file directly. */
+const isText = (f: File) => /\.(md|markdown|txt)$/i.test(f.name) || /^text\//.test(f.type);
+
+/** OCR + parse an existing resume (PDF, image, or Markdown/plain text) into the profile shape. */
 export async function parseResume(cfg: AiConfig, file: File): Promise<Profile> {
-  const mime = file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/png");
-  if (!/^(application\/pdf|image\/)/.test(mime)) throw new Error("Upload a PDF or an image (PNG/JPG) of your resume.");
-  const data = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => rej(r.error); r.readAsDataURL(file); });
-  const out = await ai(cfg, `Read this resume (OCR if scanned) and extract the candidate's details. Return JSON with exactly these keys: name, email, phone, location, links (all links joined with " · "), summary, skills (string[]), experience, projects, education (arrays of {title, org, dates, details: string[]}), awards (string[]). Copy facts verbatim; use "" or [] when absent.`,
-    "You extract structured data from resumes. Never invent details.", true, { mimeType: mime, data });
+  const ask = `Read this resume${isText(file) ? "" : " (OCR if scanned)"} and extract the candidate's details. Return JSON with exactly these keys: ${PROFILE_SHAPE} Copy facts verbatim; use "" or [] when absent.`;
+  const system = "You extract structured data from resumes. Never invent details.";
+  let out: string;
+  if (isText(file)) {
+    const text = await file.text();
+    if (!text.trim()) throw new Error("That file is empty.");
+    const exact = fromMarkdown(text); // AutoResume's own template: no AI needed
+    if (exact) return exact;
+    out = await ai(cfg, `${ask}\n\nResume (Markdown):\n${text}`, system, true);
+  } else {
+    const mime = file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/png");
+    if (!/^(application\/pdf|image\/)/.test(mime)) throw new Error("Upload a PDF, an image (PNG/JPG) or a Markdown (.md) file of your resume.");
+    const data = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => rej(r.error); r.readAsDataURL(file); });
+    out = await ai(cfg, ask, system, true, { mimeType: mime, data });
+  }
   const p = JSON.parse(out) as Partial<Profile>;
-  const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-  const str = (v: unknown) => (typeof v === "string" ? v : "");
-  return { name: str(p.name), email: str(p.email), phone: str(p.phone), location: str(p.location), links: str(p.links), summary: str(p.summary), skills: arr<string>(p.skills).map(String), experience: arr(p.experience), projects: arr(p.projects), education: arr(p.education), awards: arr<string>(p.awards).map(String) };
+  const strs = (v: unknown) => arrOr<unknown>(v, []).map(String).filter(Boolean);
+  const entries = (v: unknown) => arrOr<Record<string, unknown>>(v, []).map((e) => ({ title: str(e.title), org: str(e.org), location: str(e.location), dates: str(e.dates), details: strs(e.details) }));
+  return {
+    name: str(p.name), email: str(p.email), phone: str(p.phone), location: str(p.location), links: str(p.links), summary: str(p.summary),
+    skills: strs(p.skills), experience: entries(p.experience), projects: entries(p.projects), education: entries(p.education), awards: strs(p.awards),
+    sections: arrOr<Record<string, unknown>>(p.sections, []).map((s) => ({ title: str(s.title), entries: entries(s.entries) })).filter((s) => s.title),
+    additional: strs(p.additional),
+  };
 }
 
 export function coverLetter(cfg: AiConfig, profile: Profile, job: Job, keywords: string[]): Promise<string> {

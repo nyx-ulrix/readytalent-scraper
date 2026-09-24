@@ -4,14 +4,21 @@ export type Job = {
   skills: string[]; description: string; requirements: string; deadline: string; posted: string;
   vacancies: string; website: string; companyProfile: string; active: boolean; expired?: boolean; scrapedAt: string;
 };
-export type Entry = { title: string; org: string; dates: string; details: string[] };
+export type Entry = { title: string; org: string; location?: string; dates: string; details: string[] };
+/** Extra resume sections beyond the built-in ones, e.g. "Competition", "Leadership & Co-Curricular Activities". */
+export type Section = { title: string; entries: Entry[] };
 export type Profile = {
   name: string; email: string; phone: string; location: string; links: string; summary: string;
   skills: string[]; experience: Entry[]; education: Entry[]; projects: Entry[]; awards: string[];
+  sections: Section[];
+  /** Labelled lines under the skills, e.g. "Soft Skills: Analytical Thinking | Communication". */
+  additional: string[];
 };
-export type Template = "classic" | "modern" | "compact";
+export type Template = "standard" | "classic" | "modern" | "compact";
 export type State = {
   profile: Profile; template: Template;
+  /** Bumped when a default changes so saved state picks it up once (2 = "standard" template). */
+  defaultsVersion: number;
   /** Which AI provider to use and one key per provider (all stored locally). */
   provider: "gemini" | "openai" | "qwen" | "anthropic";
   geminiKey: string; openaiKey: string; qwenKey: string; anthropicKey: string;
@@ -73,10 +80,10 @@ export const DEFAULT_META: Meta = {
   ],
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
-export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [] };
-export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", template: "classic", tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
+export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
+export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
-  [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards].join("\n");
+  [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");
 export const isDesktop = () => typeof window !== "undefined" && !!window.desktop;
 declare global {
   interface Window {
