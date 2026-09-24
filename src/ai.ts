@@ -1,6 +1,6 @@
 import type { Job, Profile } from "./types";
 import { fromMarkdown, toMarkdown } from "./markdown";
-import { groundProfile, inSource } from "./ground";
+import { applySkillPrefs, groundProfile, inSource } from "./ground";
 
 export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
 /** model: the exact model id the user picked in Settings; "" = the provider default below. */
@@ -265,8 +265,13 @@ Draft:
 ${draft}`, SYSTEM, json);
 }
 
-export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string): Promise<Profile> {
-  const source = sourceText(profile, notes);
+export type SkillPrefs = { include: string[]; omit: string[] };
+const prefsText = (p?: SkillPrefs) => (p ? `${p.include.length ? `\nThe candidate confirmed they have these skills; include every one of them: ${JSON.stringify(p.include)}` : ""}${p.omit.length ? `\nThe candidate asked to leave these out; do not mention them anywhere: ${JSON.stringify(p.omit)}` : ""}` : "");
+/** Confirmed skills count as facts the candidate stated. */
+const withConfirmed = (notes: string, p?: SkillPrefs) => (p?.include.length ? `${notes}\nSkills I confirm I have: ${p.include.join(", ")}` : notes);
+
+export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string, prefs?: SkillPrefs): Promise<Profile> {
+  const source = sourceText(profile, withConfirmed(notes, prefs));
   const draft = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same keys and entries as the profile JSON: ${PROFILE_SHAPE}
 Rules:
 - Keep contact details, employers, schools, locations, dates, degrees, entry order and every section unchanged; rewrite only the summary, bullets, skill order and the labelled lines.
@@ -274,7 +279,7 @@ Rules:
 - Weave in as many of the ATS keywords as the source supports, and as many soft skills as possible (teamwork, communication, leadership, problem solving, adaptability, ownership...): phrase bullets so the soft skill a stated fact demonstrates is named, e.g. "collaborated with designers" -> "cross-functional collaboration and communication".
 - Languages and other qualifications from the candidate's notes (e.g. Mandarin / Chinese) that match the job go on a labelled line such as "Languages: English | Mandarin".
 - Put the candidate's skills that match the ATS keywords first. Only use skills stated in the source.
-- Use only numbers that appear in the source. Max ~4 bullets per entry so it fits one A4 page.
+- Use only numbers that appear in the source. Max ~4 bullets per entry so it fits one A4 page.${prefsText(prefs)}
 
 ATS keywords: ${JSON.stringify(keywords)}
 Job: ${jobText(job)}
@@ -285,7 +290,8 @@ ${source}
 Profile JSON to transform:
 ${JSON.stringify(profile)}`, SYSTEM, true);
   const checked = await factCheck(cfg, source, draft, true);
-  return groundProfile(profile, JSON.parse(checked) as Partial<Profile>, source);
+  const grounded = groundProfile(profile, JSON.parse(checked) as Partial<Profile>, source);
+  return prefs ? applySkillPrefs(grounded, prefs) : grounded;
 }
 
 const isText = (f: File) => /\.(md|markdown|txt)$/i.test(f.name) || /^text\//.test(f.type);
@@ -318,10 +324,10 @@ export async function parseResume(cfg: AiConfig, file: File): Promise<Profile> {
   };
 }
 
-export async function coverLetter(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string, tailored?: Profile): Promise<string> {
-  const source = sourceText(profile, notes);
+export async function coverLetter(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string, tailored?: Profile, prefs?: SkillPrefs): Promise<string> {
+  const source = sourceText(profile, withConfirmed(notes, prefs));
   const draft = await ai(cfg, `Write a cover letter (250-350 words, 3-4 paragraphs) from the candidate to ${job.company} for the ${job.title} role. Specific, warm, professional.
-Use as many of the ATS keywords and soft skills as the source supports, each tied to a stated experience; mention languages from the notes (e.g. Mandarin / Chinese) if the job values them. Use only facts and numbers from the source. No placeholders like [Company]. Start with "Dear Hiring Manager," and end with "Sincerely," and the candidate's name. Plain text only.
+Use as many of the ATS keywords and soft skills as the source supports, each tied to a stated experience; mention languages from the notes (e.g. Mandarin / Chinese) if the job values them. Use only facts and numbers from the source. No placeholders like [Company].${prefsText(prefs)} Start with "Dear Hiring Manager," and end with "Sincerely," and the candidate's name. Plain text only.
 ATS keywords: ${JSON.stringify(keywords)}
 Job: ${jobText(job)}
 ${tailored ? `Tailored resume emphasis for this job (wording only; facts must still come from the source):\n${toMarkdown(tailored, false)}\n` : ""}
@@ -329,4 +335,35 @@ Candidate source (Markdown, the only facts you may use):
 ${source}`, SYSTEM);
   const checked = await factCheck(cfg, source, draft, false);
   return checked.trim() || draft;
+}
+
+const listFrom = (out: string, key: string): string[] => {
+  const parsed = JSON.parse(out);
+  const arr = Array.isArray(parsed) ? parsed : parsed[key];
+  return Array.isArray(arr) ? [...new Set(arr.map(String).map((x: string) => x.trim()).filter(Boolean))] : [];
+};
+
+/** Roles that fit the candidate's resume, excluding ones they already listed. */
+export async function suggestRoles(cfg: AiConfig, source: string, interests: string[]): Promise<string[]> {
+  const out = await ai(cfg, `Suggest 10 job roles this candidate is a strong fit for right now, based only on their resume and notes. Mix direct fits and realistic stretch roles; include internship-level titles if they are a student. Use common job-board titles.
+Already interested in (do not repeat): ${JSON.stringify(interests)}
+Return JSON: {"roles": [string, ...]}.
+
+Candidate (Markdown):
+${source}`, "You are a career coach who knows how jobs are titled on LinkedIn and Indeed.", true);
+  const have = new Set(interests.map((r) => r.toLowerCase()));
+  return listFrom(out, "roles").filter((r) => !have.has(r.toLowerCase()));
+}
+
+/** Short LinkedIn / Indeed queries built from the roles the user wants plus their resume. */
+export async function generateSearchTerms(cfg: AiConfig, source: string, interests: string[], existing: string[]): Promise<string[]> {
+  const out = await ai(cfg, `Write 12 job-board search queries (2-4 words each) for LinkedIn and Indeed.
+Weight them heavily toward the roles the candidate wants: ${JSON.stringify(interests)}.
+Also cover the synonyms recruiters use for those roles, and role + key skill combinations from their resume (e.g. "Python data analyst"). Add internship variants if they are a student. Do not repeat these existing queries: ${JSON.stringify(existing)}.
+Return JSON: {"terms": [string, ...]}.
+
+Candidate (Markdown):
+${source}`, "You write precise job-board search queries.", true);
+  const have = new Set(existing.map((t) => t.toLowerCase()));
+  return listFrom(out, "terms").filter((t) => !have.has(t.toLowerCase()));
 }

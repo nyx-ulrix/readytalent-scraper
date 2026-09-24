@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
+const { searchBoards, stopBoards, showBoardWindow } = require("./boards.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -42,6 +43,7 @@ function serve() {
       const url = new URL(req.url, "http://x");
       if (url.pathname === "/api/jobs") return json(res, readJson("jobs.json", []));
       if (url.pathname === "/api/meta") return json(res, readJson("meta.json", { employmentTypes: [], programmes: [] }));
+      if (url.pathname === "/api/board-jobs") return json(res, readJson("board-jobs.json", []));
       if (url.pathname === "/api/info") return json(res, { lan: lanUrls() });
       if (url.pathname === "/api/state") {
         if (req.method === "GET") return json(res, readJson("state.json", null));
@@ -167,6 +169,47 @@ ipcMain.handle("rt:scrape", async (e) => {
   } finally {
     wc.off("console-message", onMsg);
   }
+});
+
+/* ---- LinkedIn / Indeed: runs only when the user presses Search ---- */
+const pick = (v, allowed) => (Array.isArray(v) ? v.filter((x) => allowed.includes(x)) : []);
+let boardsBusy = false;
+ipcMain.handle("boards:search", async (e, opts) => {
+  if (boardsBusy) throw new Error("A search is already running.");
+  const terms = [...new Set((opts?.terms || []).map((t) => String(t).trim()).filter(Boolean))].slice(0, 30);
+  if (!terms.length) throw new Error("Tick at least one search term.");
+  if (!opts.linkedin && !opts.indeed) throw new Error("Pick LinkedIn and/or Indeed.");
+  boardsBusy = true;
+  try {
+    const stored = readJson("board-jobs.json", []);
+    const known = new Map(stored.map((j) => [j.id, j]));
+    // Skill dictionary for "skills needed": ReadyTalent skill names + the user's own skills.
+    const dict = new Set();
+    for (const j of readJson("jobs.json", [])) for (const s of j.skills || []) if (s.length >= 2 && s.length <= 40) dict.add(s.trim());
+    for (const s of readJson("state.json", {})?.profile?.skills || []) if (s && s.length <= 40) dict.add(s.trim());
+    const say = (msg) => e.sender.send("boards:progress", { msg });
+    const clean = {
+      terms, location: String(opts.location || "Singapore").trim() || "Singapore", linkedin: !!opts.linkedin, indeed: !!opts.indeed,
+      perTerm: Math.min(50, Math.max(5, Number(opts.perTerm) || 10)), days: [1, 3, 7, 14, 30].includes(Number(opts.days)) ? Number(opts.days) : 14,
+      jobTypes: pick(opts.jobTypes, ["fulltime", "parttime", "contract", "temporary", "internship"]),
+      workplace: pick(opts.workplace, ["onsite", "remote", "hybrid"]),
+      levels: pick(opts.levels, ["internship", "entry", "associate", "mid", "director", "executive"]),
+      companyInclude: String(opts.companyInclude || "").slice(0, 500), companyExclude: String(opts.companyExclude || "").slice(0, 500),
+    };
+    const { jobs, errors } = await searchBoards(clean, known, [...dict], say);
+    let added = 0;
+    for (const [id, j] of jobs) { if (!known.has(id)) added++; known.set(id, j); }
+    const merged = [...known.values()].sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
+    writeJson("board-jobs.json", merged);
+    return { found: jobs.size, added, total: merged.length, errors };
+  } finally { boardsBusy = false; }
+});
+ipcMain.handle("boards:stop", () => { stopBoards(); });
+ipcMain.handle("boards:window", () => { showBoardWindow(); });
+ipcMain.handle("boards:remove", (_e, ids) => {
+  const keep = ids === "all" ? [] : readJson("board-jobs.json", []).filter((j) => !(ids || []).includes(j.id));
+  writeJson("board-jobs.json", keep);
+  return keep.length;
 });
 
 ipcMain.handle("pdf:save", async (e, name) => {

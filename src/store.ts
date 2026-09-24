@@ -42,6 +42,10 @@ export async function fetchJobs(): Promise<Job[]> {
 }
 
 /** Portal's exact lists once scraped; built-in defaults before that. */
+export async function fetchBoardJobs(): Promise<Job[]> {
+  try { const r = await fetch("/api/board-jobs"); return r.ok ? r.json() : []; } catch { return []; }
+}
+
 export async function fetchMeta(): Promise<Meta> {
   try {
     const r = await fetch("/api/meta");

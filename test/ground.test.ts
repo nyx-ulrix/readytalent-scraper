@@ -1,6 +1,6 @@
 // Self-check for the grounding guard. Run: node test/ground.test.ts
 import assert from "node:assert/strict";
-import { groundProfile, inSource, numbersSupported } from "../src/ground.ts";
+import { applySkillPrefs, groundProfile, inSource, numbersSupported } from "../src/ground.ts";
 import { toMarkdown } from "../src/markdown.ts";
 import type { Profile } from "../src/types.ts";
 
@@ -43,4 +43,9 @@ assert.deepEqual(g.experience[0].details, ["Collaborated with designers to build
 assert.deepEqual(g.sections, orig.sections, "lost section entries come back; invented sections dropped");
 assert.deepEqual(g.additional, ["Soft Skills: Teamwork | Communication", "Languages: English | Mandarin"], "labelled items must appear in the source");
 assert.deepEqual(g.awards, orig.awards);
+// User skill choices from ATS keywords: add confirmed ones not yet mentioned, strip left-out ones.
+const withPrefs = applySkillPrefs(g, { include: ["Docker", "React", "SQL"], omit: ["Python", "Communication"] });
+assert.deepEqual(withPrefs.skills, ["React", "Mandarin", "Docker", "SQL"], "confirmed skills appended once, left-out skill removed");
+assert.deepEqual(withPrefs.additional, ["Soft Skills: Teamwork", "Languages: English | Mandarin"], "left-out items removed from labelled lines");
+assert.deepEqual(applySkillPrefs(g, { include: ["Python"], omit: ["Python"] }).skills, ["React", "Mandarin"], "leave-out wins over include");
 console.log("ground self-check OK");

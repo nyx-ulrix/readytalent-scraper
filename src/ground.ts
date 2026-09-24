@@ -67,3 +67,22 @@ export function groundProfile(orig: Profile, ai: Partial<Profile>, source: strin
     additional: additional.length ? additional : orig.additional || [],
   };
 }
+
+/**
+ * The user's own choices from the ATS keywords: "I have this" skills are added (to the skills line if the
+ * resume does not already mention them); "leave out" skills are removed from skills and labelled lines.
+ */
+export function applySkillPrefs(p: Profile, prefs: { include: string[]; omit: string[] }): Profile {
+  const omitted = (s: string) => prefs.omit.some((o) => norm(o) === norm(s));
+  const skills = p.skills.filter((s) => !omitted(s));
+  const additional = (p.additional || []).map((line) => {
+    const m = line.match(/^([^:]{1,40}):\s*(.*)$/);
+    if (!m) return omitted(line) ? null : line;
+    const sep = m[2].includes("|") ? " | " : ", ";
+    const items = m[2].split(/\s*[|,]\s*/).filter((it) => it && !omitted(it));
+    return items.length ? `${m[1]}: ${items.join(sep)}` : null;
+  }).filter((l): l is string => !!l);
+  const text = [p.summary, skills.join(" | "), additional.join("\n"), ...[...p.experience, ...p.projects, ...p.education, ...(p.sections || []).flatMap((x) => x.entries)].flatMap((e) => e.details)].join("\n");
+  const missing = prefs.include.filter((k) => k.trim() && !omitted(k) && !inSource(k, text));
+  return { ...p, skills: [...skills, ...missing], additional };
+}

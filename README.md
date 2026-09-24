@@ -17,7 +17,13 @@ Install `release/AutoResume-Setup-*.exe` (or `pnpm install && pnpm start` to run
 
 **Models.** Settings → AI lists every model your key can see, grouped into text models and other models, with list prices per 1M tokens (from OpenRouter's public price list) and an on-demand online check. OpenAI Responses-only models (Codex, "-pro") are routed to the Responses API automatically.
 
-**Applied tracking.** "Mark applied" on a job records the date; the job list shows a badge and can filter to applied or not-applied jobs.
+**Tabs.** ReadyTalent (portal jobs), Search (LinkedIn and Indeed), Saved, Applied, Resume and Settings. "Mark applied" records the date; Saved and Applied gather jobs from every source. Tailoring and cover letters stay on the job page and show when they were made; open them with View resume / View letter.
+
+**Search tab (LinkedIn and Indeed).** Add the roles you want (each becomes a search term) or type your own terms, e.g. "project manager, technical sales". Optionally ask the AI to suggest roles or write more terms. Set employment type, working mode (on-site, remote, hybrid), experience level, companies to include or skip, location, results per term and posting age. Nothing is fetched until you press Search, and only ticked terms are searched. Results are stored locally; LinkedIn jobs include the full description, Indeed jobs the summary, pay and tags its search page shows (Indeed keeps full descriptions behind a human check). Results can be filtered by source, job type, working mode, level, company and pay (compared per month).
+
+**Your skill choices.** On a job's ATS keywords, click once for "I have this" (tailoring adds it when the job asks for it) or twice for "leave out" (removed from every tailored resume).
+
+**AI only on click.** Every AI action is marked ✦ and asks for confirmation first, naming the provider and model and warning that it consumes API tokens. The warning can be turned off in Settings.
 
 Windows Firewall will ask to allow AutoResume on the first launch; allow it so the tablet can connect.
 
@@ -34,7 +40,9 @@ pnpm start                     # build + run Electron
 node electron/scrape.test.cjs  # scraper self-check against a fake portal API
 node test/markdown.test.ts     # Markdown template round-trip self-check (Node 22.6+)
 node test/ground.test.ts       # grounding guard: AI output may only state facts from your resume/notes
+node test/boards.test.cjs      # LinkedIn/Indeed filter rules
+node test/pay.test.ts          # pay normalisation (yearly/hourly -> monthly)
 pnpm dist                      # Windows installer -> release/
 ```
 
-Files: `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/main.cjs` (LAN server on :4242, portal window, PDF), `src/ai.ts` (providers, model list, keywords, tailoring, cover letter), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates: standard, classic, modern, compact).
+Files: `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/main.cjs` (LAN server on :4242, portal window, PDF), `electron/boards.cjs` (LinkedIn/Indeed search), `src/ai.ts` (providers, model list, keywords, tailoring, cover letter), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates: standard, classic, modern, compact).

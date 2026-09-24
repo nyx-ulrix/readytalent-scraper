@@ -57,6 +57,30 @@ table.models { width: 100%; border-collapse: collapse; font-size: 12px; margin-t
 table.models th, table.models td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.models tr.muted td { color: var(--muted); }
 table.models button.small { padding: 2px 8px; font-size: 12px; }
+
+/* Search page: the panel spans the top, the usual list + detail below. */
+.search-page { height: 100%; }
+.search-page .jobs { grid-template-rows: auto 1fr; }
+.search-page .jobs > .search-panel { grid-column: 1 / -1; }
+.search-page .jobs > .list, .search-page .jobs > .detail, .search-page .jobs > .empty { min-height: 0; }
+.search-panel { border-bottom: 1px solid var(--line); padding: 10px 16px 12px; max-height: 48vh; overflow: auto; background: #fcfcfb; }
+.search-panel summary { font-weight: 600; cursor: pointer; }
+.search-panel label { margin-top: 10px; }
+.chip-x { border: 0; background: transparent; color: var(--muted); padding: 0 0 0 4px; cursor: pointer; }
+.chip.term { display: inline-flex; align-items: center; padding: 0 8px 0 0; }
+.chip-toggle { border: 0; background: transparent; color: inherit; padding: 3px 0 3px 9px; font-size: 12px; }
+.chip-input { width: 190px; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.search-opts label { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px 8px 0; }
+.search-opts input[type=checkbox] { width: auto; }
+.search-opts select { width: auto; }
+button.small { padding: 3px 9px; font-size: 12px; }
+.chip.mark-have { outline: 2px solid var(--ok); }
+.filter-groups { display: grid; gap: 6px; margin: 4px 0 8px; }
+.filter-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filter-group > .small { min-width: 110px; }
+.filter-group label { display: flex; gap: 6px; align-items: center; flex: 1 1 240px; }
+.chip.mark-omit { text-decoration: line-through; opacity: .7; }
+@media (max-width: 900px) { .search-page .jobs.has-sel > .search-panel { display: none; } }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
 .empty { padding: 40px 24px; color: var(--muted); max-width: 520px; }
 .back { display: none; }
