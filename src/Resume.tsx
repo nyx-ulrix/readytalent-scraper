@@ -1,15 +1,22 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Entry, Profile, Template } from "./types";
 import { Linkify } from "./linkify";
 import { headerLinks } from "./links";
 import { MAX_PROJECTS, sectionLimit } from "./limits";
 
+/** Smallest text allowed on a resume or letter. */
+export const MIN_FONT_PT = 8;
+const PT_TO_PX = 96 / 72;
+
+/** What the fitting did, for the note on the Resume tab. */
+export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean };
+
 /**
  * Exactly one A4 sheet. If the content is taller than the page, everything inside is scaled down evenly
- * (text, spacing, headings) until it fits; the width is compensated so lines still span the full page.
- * Reports the scale so the UI can warn when text gets small.
+ * (text, spacing, headings), but never so far that the smallest text drops below MIN_FONT_PT.
+ * The width is compensated so lines still span the full page. Reports whether it fits at that limit.
  */
-function A4({ className, fitKey, onFit, children }: { className: string; fitKey: string; onFit?: (scale: number) => void; children: ReactNode }) {
+function A4({ className, fitKey, onFit, children }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean }) => void; children: ReactNode }) {
   const area = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -22,14 +29,26 @@ function A4({ className, fitKey, onFit, children }: { className: string; fitKey:
         b.style.width = `${100 / f}%`;
         return b.getBoundingClientRect().height;
       };
+      // Smallest font actually used on this page (unscaled), so the floor works for every template.
+      at(1);
+      let smallestPx = Infinity;
+      for (const el of b.querySelectorAll<HTMLElement>("*")) {
+        if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())) continue;
+        smallestPx = Math.min(smallestPx, parseFloat(getComputedStyle(el).fontSize) || Infinity);
+      }
+      const minScale = Math.min(1, (MIN_FONT_PT * PT_TO_PX) / (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx));
       let f = 1;
-      if (at(1) > room) {
-        let lo = 0.2, hi = 1;
-        for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (at(mid) <= room) lo = mid; else hi = mid; }
-        f = lo;
+      let fits = at(1) <= room;
+      if (!fits) {
+        fits = at(minScale) <= room;
+        if (fits) {
+          let lo = minScale, hi = 1;
+          for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (at(mid) <= room) lo = mid; else hi = mid; }
+          f = lo;
+        } else f = minScale;
         at(f);
       }
-      onFit?.(f);
+      onFit?.({ scale: f, smallestPt: (smallestPx / PT_TO_PX) * f, fits });
     };
     fit();
     void document.fonts?.ready.then(fit); // refit once web fonts have loaded
@@ -51,10 +70,34 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const bullets = (e: Entry) => e.details.filter(Boolean);
+
+/**
+ * Steps tried in order until the page fits at 8 pt or larger: normal, tighter spacing, then fewer bullets per
+ * entry. Nothing is deleted from your data; hidden bullets are only left off this page.
+ */
+const DENSITY: { tight: boolean; bullets: number }[] = [
+  { tight: false, bullets: Infinity }, { tight: true, bullets: Infinity },
+  { tight: true, bullets: 4 }, { tight: true, bullets: 3 }, { tight: true, bullets: 2 }, { tight: true, bullets: 1 }, { tight: true, bullets: 0 },
+];
+const hiddenCount = (p: Profile, cap: number) =>
+  [...p.education, ...p.experience, ...p.projects.slice(0, MAX_PROJECTS), ...(p.sections || []).flatMap((s) => s.entries.slice(0, sectionLimit(s.title)))]
+    .reduce((n, e) => n + Math.max(0, bullets(e).length - cap), 0);
+
+/** Picks the first density step that fits; resets when the content or template changes. */
+function useDensity(key: string, onFit?: (info: FitInfo) => void) {
+  const [level, setLevel] = useState(0);
+  useEffect(() => setLevel(0), [key]);
+  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean }) => {
+    if (!r.fits && level < DENSITY.length - 1) { setLevel(level + 1); return; }
+    const d = DENSITY[level];
+    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0 });
+  };
+  return { level, d: DENSITY[level], report };
+}
 const hasEntries = (items: Entry[]) => items.some((e) => e.title || e.org);
 
 /** Classic / modern / compact entry: title + dates, then org · location, then bullets. */
-function Entries({ title, items }: { title: string; items: Entry[] }) {
+function Entries({ title, items, cap = Infinity }: { title: string; items: Entry[]; cap?: number }) {
   const list = items.filter((e) => e.title || e.org);
   if (!list.length) return null;
   return (
@@ -66,7 +109,7 @@ function Entries({ title, items }: { title: string; items: Entry[] }) {
             <span className="entry-dates">{e.dates}</span>
           </div>
           {(e.org || e.location) && <div className="entry-org"><Linkify text={[e.org, e.location].filter(Boolean).join(" · ")} /></div>}
-          {bullets(e).length > 0 && <ul>{bullets(e).map((d, j) => <li key={j}><Linkify text={d} /></li>)}</ul>}
+          {bullets(e).slice(0, cap).length > 0 && <ul>{bullets(e).slice(0, cap).map((d, j) => <li key={j}><Linkify text={d} /></li>)}</ul>}
         </div>
       ))}
     </Section>
@@ -78,7 +121,7 @@ function Entries({ title, items }: { title: string; items: Entry[] }) {
  * stacked on the right, bullets wrapping around them.
  * Education: "Org" then "Degree". Experience: "Role, Company". Everything else: "Name | Detail".
  */
-function StdEntries({ title, items, kind }: { title: string; items: Entry[]; kind: "edu" | "exp" | "other" }) {
+function StdEntries({ title, items, kind, cap = Infinity }: { title: string; items: Entry[]; kind: "edu" | "exp" | "other"; cap?: number }) {
   const list = items.filter((e) => e.title || e.org);
   if (!list.length) return null;
   return (
@@ -89,7 +132,7 @@ function StdEntries({ title, items, kind }: { title: string; items: Entry[]; kin
           <div className="entry" key={i}>
             {(e.location || e.dates) && <div className="rmeta">{e.location && <div>{e.location}</div>}{e.dates && <div>{e.dates}</div>}</div>}
             {lines.filter(Boolean).map((l, j) => <div className="line" key={j}><Linkify text={l} /></div>)}
-            {bullets(e).length > 0 && <ul>{bullets(e).map((d, j) => <li key={j}><Linkify text={d} /></li>)}</ul>}
+            {bullets(e).slice(0, cap).length > 0 && <ul>{bullets(e).slice(0, cap).map((d, j) => <li key={j}><Linkify text={d} /></li>)}</ul>}
           </div>
         );
       })}
@@ -103,13 +146,15 @@ function Labelled({ text }: { text: string }) {
   return <div className="line-plain">{m ? <><b>{m[1]}:</b> <Linkify text={m[2]} /></> : <Linkify text={text} />}</div>;
 }
 
-function StandardPage({ p, onFit }: { p: Profile; onFit?: (scale: number) => void }) {
+function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => void }) {
+  const key = JSON.stringify(p);
+  const { level, d, report } = useDensity(key, onFit);
   const contact = [p.phone, p.email, ...headerLinks(p)].map((s) => (s || "").trim()).filter(Boolean);
   const extra = p.sections || [];
   const additional = (p.additional || []).filter(Boolean);
   const awards = p.awards.filter(Boolean);
   return (
-    <A4 className="page tpl-standard" fitKey={JSON.stringify(p)} onFit={onFit}>
+    <A4 className={`page tpl-standard${d.tight ? " tight" : ""}`} fitKey={`${level}|${key}`} onFit={report(p)}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">
@@ -119,10 +164,10 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (scale: number) => voi
         </div>
       </header>
       {p.summary && <Section title="Profile"><p><Linkify text={p.summary} /></p></Section>}
-      <StdEntries title="Education" items={p.education} kind="edu" />
-      <StdEntries title="Work Experience" items={p.experience} kind="exp" />
-      <StdEntries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} kind="other" />
-      {extra.map((s, i) => <StdEntries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} kind="other" />)}
+      <StdEntries title="Education" items={p.education} kind="edu" cap={d.bullets} />
+      <StdEntries title="Work Experience" items={p.experience} kind="exp" cap={d.bullets} />
+      <StdEntries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} kind="other" cap={d.bullets} />
+      {extra.map((s, i) => <StdEntries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} kind="other" cap={d.bullets} />)}
       {(awards.length > 0 || p.skills.length > 0 || additional.length > 0) && (
         <Section title="Certifications & Additional Skills">
           {awards.map((a, i) => <Labelled key={`a${i}`} text={a} />)}
@@ -135,13 +180,19 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (scale: number) => voi
 }
 
 /** A4 page. Standard has its own layout; the other templates share one DOM and differ only in CSS. */
-export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (scale: number) => void }) {
+export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
   if (template === "standard") return <StandardPage p={p} onFit={onFit} />;
+  return <OtherPage p={p} template={template} onFit={onFit} />;
+}
+
+function OtherPage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
+  const key = template + JSON.stringify(p);
+  const { level, d, report } = useDensity(key, onFit);
   const contact = [p.email, p.phone, p.location, ...headerLinks(p)].filter(Boolean);
   const extra = p.sections || [];
   const additional = (p.additional || []).filter(Boolean);
   return (
-    <A4 className={`page tpl-${template}`} fitKey={template + JSON.stringify(p)} onFit={onFit}>
+    <A4 className={`page tpl-${template}${d.tight ? " tight" : ""}`} fitKey={`${level}|${key}`} onFit={report(p)}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">{contact.map((c, i) => <span key={i}><Linkify text={c} phone={c === p.phone} /></span>)}</div>
@@ -152,10 +203,10 @@ export function ResumePage({ p, template, onFit }: { p: Profile; template: Templ
           <div className="skills">{p.skills.map((s, i) => <span key={i}>{s}</span>)}</div>
         </Section>
       )}
-      <Entries title="Experience" items={p.experience} />
-      <Entries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} />
-      <Entries title="Education" items={p.education} />
-      {extra.filter((s) => hasEntries(s.entries)).map((s, i) => <Entries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} />)}
+      <Entries title="Experience" items={p.experience} cap={d.bullets} />
+      <Entries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} cap={d.bullets} />
+      <Entries title="Education" items={p.education} cap={d.bullets} />
+      {extra.filter((s) => hasEntries(s.entries)).map((s, i) => <Entries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} cap={d.bullets} />)}
       {(p.awards.filter(Boolean).length > 0 || additional.length > 0) && (
         <Section title="Awards & Certifications">
           {p.awards.filter(Boolean).length > 0 && <ul>{p.awards.filter(Boolean).map((a, i) => <li key={i}><Linkify text={a} /></li>)}</ul>}
@@ -166,10 +217,13 @@ export function ResumePage({ p, template, onFit }: { p: Profile; template: Templ
   );
 }
 
-export function LetterPage({ p, text, template, onFit }: { p: Profile; text: string; template: Template; onFit?: (scale: number) => void }) {
+export function LetterPage({ p, text, template, onFit }: { p: Profile; text: string; template: Template; onFit?: (info: FitInfo) => void }) {
+  const key = template + text + JSON.stringify(p);
+  const { level, d, report } = useDensity(key, onFit);
+  const tight = level > 0;
   const contact = [p.email, p.phone, p.location, ...headerLinks(p)].filter(Boolean);
   return (
-    <A4 className={`page letter tpl-${template}`} fitKey={template + text + JSON.stringify(p)} onFit={onFit}>
+    <A4 className={`page letter tpl-${template}${tight ? " tight" : ""}`} fitKey={`${Math.min(level, 1)}|${key}`} onFit={(r) => (level === 0 && !r.fits ? report(null)(r) : onFit?.({ ...r, tight: d.tight, hiddenBullets: 0 }))}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">{contact.map((c, i) => <span key={i}><Linkify text={c} phone={c === p.phone} /></span>)}</div>

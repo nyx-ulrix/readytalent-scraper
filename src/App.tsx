@@ -9,7 +9,7 @@ const stamp = (s: State, kind: "resume" | "letter", jobId: string) => {
   return iso ? new Date(iso).toLocaleString("en-SG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 };
 const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]], model: s.models?.[s.provider] || "" });
-import { LetterPage, ResumePage } from "./Resume";
+import { LetterPage, MIN_FONT_PT, ResumePage, type FitInfo } from "./Resume";
 import { MARKER, toMarkdown } from "./markdown";
 import { PAY_FILTERS, monthlyPay, payPasses } from "./pay";
 import { MAX_LEADERSHIP, MAX_PROJECTS, isLeadership } from "./limits";
@@ -536,7 +536,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
-  const [fitScale, setFitScale] = useState(1);
+  const [fit, setFit] = useState<FitInfo | null>(null);
   useEffect(() => {
     const fit = () => setZoom(Math.min(1, ((ref.current?.clientWidth || 800) - 16) / 794));
     fit();
@@ -576,9 +576,18 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
         {doc.kind === "resume" && <button className={editing ? "" : "ghost"} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : tailoredVersion ? "Edit this version" : "Edit"}</button>}
         {doc.jobId && doc.kind === "resume" && <button className="ghost" onClick={() => { const t = { ...state.tailored }; delete t[doc.jobId]; update({ tailored: t }); setDoc({ kind: "resume", jobId: "" }); }}>Delete this version</button>}
         <span className="small muted">{Math.round(zoom * 100)}%</span>
-        <span className={`small fit-note ${fitScale < 0.8 ? "warn" : "muted"}`} title="Every resume and letter is kept to exactly one A4 page">
-          {fitScale >= 0.999 ? "Fits on one A4 page" : `Shrunk to ${Math.round(fitScale * 100)}% to fit one A4 page${fitScale < 0.8 ? ". Text is small: trim it with Edit, or tailor it to a job" : ""}`}
-        </span>
+        {fit && (
+          <span className={`small fit-note ${fit.hiddenBullets || !fit.fits ? "warn" : "muted"}`} title={`Every resume and letter is one A4 page; text is never smaller than ${MIN_FONT_PT} pt`}>
+            {[
+              "One A4 page",
+              `smallest text ${fit.smallestPt.toFixed(1)} pt`,
+              fit.scale < 0.999 ? `shrunk to ${Math.round(fit.scale * 100)}%` : "",
+              fit.tight ? "tighter spacing" : "",
+              fit.hiddenBullets ? `${fit.hiddenBullets} bullet point${fit.hiddenBullets === 1 ? "" : "s"} left off to fit; choose what shows with Edit, or tailor to a job` : "",
+              !fit.fits ? "still too long: shorten it with Edit" : "",
+            ].filter(Boolean).join(" · ")}
+          </span>
+        )}
       </div>
       {doc.kind === "letter" && (
         <div className="app-chrome" style={{ padding: "8px 16px", borderBottom: "1px solid var(--line)" }}>
@@ -594,8 +603,8 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
       <div className="preview" ref={ref}>
         <div className="preview-zoom" style={{ zoom }}>
           {doc.kind === "letter"
-            ? <LetterPage p={state.profile} text={letter} template={state.template} onFit={setFitScale} />
-            : <ResumePage p={profile} template={state.template} onFit={setFitScale} />}
+            ? <LetterPage p={state.profile} text={letter} template={state.template} onFit={setFit} />
+            : <ResumePage p={profile} template={state.template} onFit={setFit} />}
         </div>
       </div>
     </div>

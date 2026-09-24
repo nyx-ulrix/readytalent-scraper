@@ -117,6 +117,13 @@ button.small { padding: 3px 9px; font-size: 12px; }
 /* Always one A4 sheet: the content area is the page minus its padding; .page-fit is scaled to fit it. */
 .page-area { height: 100%; overflow: hidden; }
 .page-fit { transform-origin: top left; }
+/* Tighter spacing (same font sizes), tried before any bullets are hidden. */
+.page.tight { line-height: 1.22; }
+.page.tight h2 { margin: 6pt 0 2pt; }
+.page.tight .entry { margin-bottom: 3pt; }
+.page.tight p { margin-bottom: 2pt; }
+.page.tight.letter p { margin-bottom: 6pt; }
+.tpl-standard.tight .line, .tpl-standard.tight .rmeta, .tpl-standard.tight .line-plain { line-height: 1.25; }
 .page header { margin-bottom: 8pt; }
 .page h1 { font-size: 22pt; margin: 0; letter-spacing: .01em; }
 .page .contact { font-size: 9.5pt; color: #333; margin-top: 3pt; display: flex; flex-wrap: wrap; gap: 0 10pt; }
