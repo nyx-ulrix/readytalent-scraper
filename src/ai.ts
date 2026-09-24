@@ -1,6 +1,7 @@
 import type { Job, Profile } from "./types";
 import { fromMarkdown, toMarkdown } from "./markdown";
 import { applySkillPrefs, groundProfile, inSource } from "./ground";
+import { MAX_LEADERSHIP, MAX_PROJECTS } from "./limits";
 
 export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
 /** model: the exact model id the user picked in Settings; "" = the provider default below. */
@@ -279,7 +280,8 @@ Rules:
 - Weave in as many of the ATS keywords as the source supports, and as many soft skills as possible (teamwork, communication, leadership, problem solving, adaptability, ownership...): phrase bullets so the soft skill a stated fact demonstrates is named, e.g. "collaborated with designers" -> "cross-functional collaboration and communication".
 - Languages and other qualifications from the candidate's notes (e.g. Mandarin / Chinese) that match the job go on a labelled line such as "Languages: English | Mandarin".
 - Put the candidate's skills that match the ATS keywords first. Only use skills stated in the source.
-- Use only numbers that appear in the source. Max ~4 bullets per entry so it fits one A4 page.${prefsText(prefs)}
+- It must fit on ONE A4 page. Keep every education and work-experience entry. Projects: include at most ${MAX_PROJECTS}, the most relevant to this job, most relevant first. Any leadership / co-curricular section: at most ${MAX_LEADERSHIP} entries, the most relevant first. In other extra sections keep only what helps for this job. Copy the title and org of every entry you keep exactly. At most 3 short bullets per entry; aim for about 450-550 words in total.
+- Use only numbers that appear in the source.${prefsText(prefs)}
 
 ATS keywords: ${JSON.stringify(keywords)}
 Job: ${jobText(job)}

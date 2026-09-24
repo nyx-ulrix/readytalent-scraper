@@ -12,6 +12,7 @@ const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.p
 import { LetterPage, ResumePage } from "./Resume";
 import { MARKER, toMarkdown } from "./markdown";
 import { PAY_FILTERS, monthlyPay, payPasses } from "./pay";
+import { MAX_LEADERSHIP, MAX_PROJECTS, isLeadership } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
 type Tab = "jobs" | "search" | "saved" | "applied" | "resume" | "settings";
@@ -535,6 +536,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
   useEffect(() => {
     const fit = () => setZoom(Math.min(1, ((ref.current?.clientWidth || 800) - 16) / 794));
     fit();
@@ -574,6 +576,9 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
         {doc.kind === "resume" && <button className={editing ? "" : "ghost"} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : tailoredVersion ? "Edit this version" : "Edit"}</button>}
         {doc.jobId && doc.kind === "resume" && <button className="ghost" onClick={() => { const t = { ...state.tailored }; delete t[doc.jobId]; update({ tailored: t }); setDoc({ kind: "resume", jobId: "" }); }}>Delete this version</button>}
         <span className="small muted">{Math.round(zoom * 100)}%</span>
+        <span className={`small fit-note ${fitScale < 0.8 ? "warn" : "muted"}`} title="Every resume and letter is kept to exactly one A4 page">
+          {fitScale >= 0.999 ? "Fits on one A4 page" : `Shrunk to ${Math.round(fitScale * 100)}% to fit one A4 page${fitScale < 0.8 ? ". Text is small: trim it with Edit, or tailor it to a job" : ""}`}
+        </span>
       </div>
       {doc.kind === "letter" && (
         <div className="app-chrome" style={{ padding: "8px 16px", borderBottom: "1px solid var(--line)" }}>
@@ -587,10 +592,10 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
         </div>
       )}
       <div className="preview" ref={ref}>
-        <div style={{ zoom }}>
+        <div className="preview-zoom" style={{ zoom }}>
           {doc.kind === "letter"
-            ? <LetterPage p={state.profile} text={letter} template={state.template} />
-            : <ResumePage p={profile} template={state.template} />}
+            ? <LetterPage p={state.profile} text={letter} template={state.template} onFit={setFitScale} />
+            : <ResumePage p={profile} template={state.template} onFit={setFitScale} />}
         </div>
       </div>
     </div>
@@ -854,6 +859,8 @@ function EntryList({ title, items, onChange }: { title: string; items: Entry[]; 
   return (
     <>
       <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => onChange([...items, emptyEntry()])}>+ Add</button></h2>
+      {title === "Projects" && <div className="small muted">Resumes show at most {MAX_PROJECTS} projects: your base resume shows the first {MAX_PROJECTS} here (use ↑ to reorder); tailored resumes pick the {MAX_PROJECTS} most relevant to each job.</div>}
+      {isLeadership(title) && <div className="small muted">Resumes show at most {MAX_LEADERSHIP} leadership entries: the first {MAX_LEADERSHIP} here on your base resume, the {MAX_LEADERSHIP} most relevant on tailored ones.</div>}
       {items.map((e, i) => (
         <div className="card" key={i}>
           <div className="row">
@@ -861,6 +868,7 @@ function EntryList({ title, items, onChange }: { title: string; items: Entry[]; 
             <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
             <input placeholder="Location" value={e.location || ""} onChange={(ev) => set(i, { location: ev.target.value })} />
             <input placeholder="Dates (e.g. Jan 2024 – Present)" value={e.dates} onChange={(ev) => set(i, { dates: ev.target.value })} />
+            {i > 0 && <button className="ghost" title="Move up" onClick={() => onChange(items.map((x, j) => (j === i - 1 ? items[i] : j === i ? items[i - 1] : x)))}>↑</button>}
             <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>
           <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />

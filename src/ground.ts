@@ -1,11 +1,12 @@
 import type { Entry, Profile } from "./types";
+import { MAX_PROJECTS, sectionLimit } from "./limits.ts";
 
 /**
  * Deterministic guard run after every AI rewrite: the output may only contain facts from the
  * candidate's own source text (their resume + the notes they typed). The AI rewords; this file
  * makes sure nothing new slips through:
  * - contact details, entry titles/orgs/locations/dates, awards and section names are pinned to the original;
- * - entries the AI invented are dropped, entries it lost come back;
+ * - entries the AI invented are dropped; education and work experience always stay, projects (max 3) and extra-section entries (leadership max 2) follow the AI's relevance pick;
  * - a bullet or summary containing a number that is not in the source reverts to the original;
  * - skills and labelled-line items (Soft Skills, Languages...) must appear in the source text.
  */
@@ -28,15 +29,36 @@ export function inSource(term: string, source: string): boolean {
   return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "u").test(norm(source));
 }
 
+/** Original entry with the AI's rewritten bullets; a bullet with a number not in the source reverts to the original bullet in that slot. */
+function pinEntry(o: Entry, a: Entry | undefined, source: string): Entry {
+  const aiDetails = Array.isArray(a?.details) ? a!.details.map(String).filter((d) => d.trim()) : [];
+  const details = aiDetails.map((d, j) => (numbersSupported(d, source) ? d : o.details[j])).filter((d): d is string => !!d);
+  return { ...o, details: details.length ? details : o.details };
+}
+const sameEntry = (o: Entry, a: Entry) => !!a && norm(a.title || "") === norm(o.title) && norm(a.org || "") === norm(o.org);
+
+/** Every original entry is kept (education, work experience). */
 function groundEntries(orig: Entry[], ai: Entry[] | undefined, source: string): Entry[] {
   const list = Array.isArray(ai) ? ai : [];
-  return orig.map((o, i) => {
-    const a = list.find((x) => x && norm(x.title || "") === norm(o.title) && norm(x.org || "") === norm(o.org)) ?? list[i];
-    const aiDetails = Array.isArray(a?.details) ? a!.details.map(String).filter((d) => d.trim()) : [];
-    // Unsupported bullet -> the original bullet in the same slot (or dropped if there is none).
-    const details = aiDetails.map((d, j) => (numbersSupported(d, source) ? d : o.details[j])).filter((d): d is string => !!d);
-    return { ...o, details: details.length ? details : o.details };
-  });
+  return orig.map((o, i) => pinEntry(o, list.find((x) => sameEntry(o, x)) ?? list[i], source));
+}
+
+/**
+ * Only the entries the AI chose, in its order (most relevant first), capped at `max`. Invented entries are
+ * ignored. If nothing matches (missing or garbled output), fall back to the first `max` originals.
+ */
+function chooseEntries(orig: Entry[], ai: Entry[] | undefined, source: string, max: number): Entry[] {
+  const used = new Set<number>();
+  const out: Entry[] = [];
+  for (const a of Array.isArray(ai) ? ai : []) {
+    if (out.length >= max) break;
+    let i = orig.findIndex((o, k) => !used.has(k) && sameEntry(o, a));
+    if (i < 0) i = orig.findIndex((o, k) => !used.has(k) && !!a && norm(a.title || "") === norm(o.title)); // org reworded
+    if (i < 0) continue;
+    used.add(i);
+    out.push(pinEntry(orig[i], a, source));
+  }
+  return out.length ? out : orig.slice(0, max);
 }
 
 /** "Soft Skills: A | B, C" -> keep only items that appear in the source; drop the line if none survive. */
@@ -59,10 +81,10 @@ export function groundProfile(orig: Profile, ai: Partial<Profile>, source: strin
     skills: skills.length ? [...new Set(skills)] : orig.skills,
     education: groundEntries(orig.education, ai.education, source),
     experience: groundEntries(orig.experience, ai.experience, source),
-    projects: groundEntries(orig.projects, ai.projects, source),
+    projects: chooseEntries(orig.projects, ai.projects, source, MAX_PROJECTS),
     sections: (orig.sections || []).map((s) => ({
       ...s,
-      entries: groundEntries(s.entries, (Array.isArray(ai.sections) ? ai.sections : []).find((t) => t && norm(t.title || "") === norm(s.title))?.entries, source),
+      entries: chooseEntries(s.entries, (Array.isArray(ai.sections) ? ai.sections : []).find((t) => t && norm(t.title || "") === norm(s.title))?.entries, source, sectionLimit(s.title)),
     })),
     additional: additional.length ? additional : orig.additional || [],
   };

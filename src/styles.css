@@ -24,6 +24,7 @@ a { color: var(--accent); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .status { font-size: 12px; color: var(--muted); min-height: 16px; }
 .status.err { color: #b42318; }
+.warn { color: var(--warn); font-weight: 600; }
 
 /* Layout: top tabs, scrolling main */
 .layout { display: flex; flex-direction: column; height: 100%; }
@@ -110,9 +111,12 @@ button.small { padding: 3px 9px; font-size: 12px; }
 
 /* A4 page */
 .page {
-  width: 210mm; min-height: 297mm; padding: 16mm 17mm; background: #fff; color: #111;
+  width: 210mm; height: 297mm; overflow: hidden; padding: 16mm 17mm; background: #fff; color: #111;
   font-family: Georgia, "Times New Roman", serif; font-size: 10.5pt; line-height: 1.4;
 }
+/* Always one A4 sheet: the content area is the page minus its padding; .page-fit is scaled to fit it. */
+.page-area { height: 100%; overflow: hidden; }
+.page-fit { transform-origin: top left; }
 .page header { margin-bottom: 8pt; }
 .page h1 { font-size: 22pt; margin: 0; letter-spacing: .01em; }
 .page .contact { font-size: 9.5pt; color: #333; margin-top: 3pt; display: flex; flex-wrap: wrap; gap: 0 10pt; }
@@ -172,6 +176,8 @@ button.small { padding: 3px 9px; font-size: 12px; }
   html, body, #root, .layout, main, .resume-tab, .preview { height: auto; overflow: visible; background: #fff; display: block; padding: 0; }
   .app-chrome { display: none !important; }
   .preview .page { margin: 0; box-shadow: none; zoom: 1 !important; }
+  .preview-zoom { zoom: 1 !important; }
+  .fit-note { display: none !important; }
 }
 
 /* Phone and email stay black (as in the Word original) but remain clickable. */
