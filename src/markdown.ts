@@ -22,9 +22,10 @@ function sectionMd(title: string, entries: Entry[]): string {
   return list.length ? `## ${title}\n\n${list.map(entryMd).join("\n\n")}` : "";
 }
 
-export function toMarkdown(p: Profile): string {
+/** placeholders: fill empty built-in sections with an example entry (for the downloadable template, not for AI context). */
+export function toMarkdown(p: Profile, placeholders = true): string {
   const blank: Entry = { title: "Title (degree / role / project name)", org: "School, company or tech stack", location: "Singapore", dates: "Jan 2024 – Present", details: ["What you did and the result"] };
-  const or = (list: Entry[]) => (list.some((e) => e.title || e.org) ? list : [blank]);
+  const or = (list: Entry[]) => (!placeholders || list.some((e) => e.title || e.org) ? list : [blank]);
   const parts = [
     MARKER,
     `# ${p.name || "Your Name"}`,

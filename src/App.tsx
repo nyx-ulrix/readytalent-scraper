@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJobs, fetchMeta, useAppState } from "./store";
-import { PROVIDERS, coverLetter, extractKeywords, matchKeywords, parseResume, tailorResume, type AiConfig, type Provider } from "./ai";
+import { PROVIDERS, coverLetter, extractKeywords, listModels, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
-const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]] });
+const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]], model: s.models?.[s.provider] || "" });
 import { LetterPage, ResumePage } from "./Resume";
 import { toMarkdown } from "./markdown";
 import { DEFAULT_META, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
@@ -46,6 +46,7 @@ function Jobs({ jobs, setJobs, state, update, sel, setSel, open }: {
 }) {
   const [q, setQ] = useState("");
   const [onlySaved, setOnlySaved] = useState(false);
+  const [appliedFilter, setAppliedFilter] = useState<"" | "applied" | "open">("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
@@ -86,6 +87,7 @@ function Jobs({ jobs, setJobs, state, update, sel, setSel, open }: {
       (!course || (j.programmes || []).includes(course)) &&
       skillsWant.every((k) => sk.includes(k)) && !skillsAvoid.some((k) => sk.includes(k)) &&
       (!onlySaved || state.saved.includes(j.id)) &&
+      (appliedFilter !== "applied" || !!state.applied?.[j.id]) && (appliedFilter !== "open" || !state.applied?.[j.id]) &&
       (!hideExpired || !j.expired) &&
       (!min || salaryNum(j.salary) >= min) &&
       (!needle || [j.title, j.company, j.skills.join(" "), j.description].join(" ").toLowerCase().includes(needle));
@@ -98,7 +100,7 @@ function Jobs({ jobs, setJobs, state, update, sel, setSel, open }: {
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort]);
-  }, [jobs, q, type, course, onlySaved, hideExpired, minSalary, sort, state.saved, skillsWant, skillsAvoid]);
+  }, [jobs, q, type, course, onlySaved, appliedFilter, hideExpired, minSalary, sort, state.saved, state.applied, skillsWant, skillsAvoid]);
 
   useEffect(() => window.desktop?.onProgress((p) => setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`)), []);
 
@@ -143,6 +145,11 @@ function Jobs({ jobs, setJobs, state, update, sel, setSel, open }: {
               <option value="title">Title A–Z</option>
               <option value="company">Company A–Z</option>
             </select>
+            <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ width: "auto" }}>
+              <option value="">All ({Object.keys(state.applied || {}).length} applied)</option>
+              <option value="open">Not applied</option>
+              <option value="applied">Applied</option>
+            </select>
             <input type="number" inputMode="numeric" placeholder="Min $" value={minSalary} onChange={(e) => setMinSalary(e.target.value)} style={{ width: 84 }} />
           </div>
           <div className="row">
@@ -169,7 +176,7 @@ function Jobs({ jobs, setJobs, state, update, sel, setSel, open }: {
         </div>
         {shown.map((j) => (
           <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}`} onClick={() => setSel(j)}>
-            <div className="t">{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
+            <div className="t">{state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[j.type, j.salary, j.expired ? "expired" : ""].filter(Boolean).join(" · ")}</div>
           </div>
@@ -189,6 +196,7 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
   const keywords = state.keywords[job.id];
   const mine = new Set(state.profile.skills.map((s) => s.toLowerCase()));
   const saved = state.saved.includes(job.id);
+  const appliedOn = state.applied?.[job.id] || "";
   const match = keywords ? matchKeywords(keywords, profileText(state.tailored[job.id] || state.profile)) : null;
 
   const run = async (name: string, fn: () => Promise<void>) => {
@@ -196,9 +204,9 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
     try { await fn(); } catch (e) { setStatus((e as Error).message); }
     setBusy("");
   };
-  const getKeywords = async () => {
-    if (keywords) return keywords;
-    const k = await extractKeywords(aiCfg(state), job);
+  const getKeywords = async (force = false) => {
+    if (keywords && !force) return keywords;
+    const k = await extractKeywords(aiCfg(state), job, sourceText(state.profile, state.about || ""));
     update((s) => ({ ...s, keywords: { ...s.keywords, [job.id]: k } }));
     return k;
   };
@@ -220,12 +228,15 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
         </div>
         <div className="actions">
           <button className="ghost" onClick={() => update({ saved: saved ? state.saved.filter((i) => i !== job.id) : [...state.saved, job.id] })}>{saved ? "♥ Saved" : "♡ Save"}</button>
-          <button className="ghost" onClick={() => run("kw", async () => { await getKeywords(); })} disabled={!!busy}>{keywords ? "Refresh keywords" : "ATS keywords"}</button>
-          <button onClick={() => run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t } })); open("resume", job.id); })} disabled={!!busy}>
+          <button className={appliedOn ? "" : "ghost"} title={appliedOn ? "Click to undo" : "Mark this job as applied"} onClick={() => update((s) => { const a = { ...(s.applied || {}) }; if (a[job.id]) delete a[job.id]; else a[job.id] = new Date().toISOString(); return { ...s, applied: a }; })}>
+            {appliedOn ? `✓ Applied ${new Date(appliedOn).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark applied"}
+          </button>
+          <button className="ghost" onClick={() => run("kw", async () => { await getKeywords(true); })} disabled={!!busy}>{keywords ? "Refresh keywords" : "ATS keywords"}</button>
+          <button onClick={() => run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || ""); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t } })); open("resume", job.id); })} disabled={!!busy}>
             {busy === "resume" ? "Tailoring…" : state.tailored[job.id] ? "Re-tailor resume" : "Tailor resume"}
           </button>
           {state.tailored[job.id] && <button className="ghost" onClick={() => open("resume", job.id)}>View resume</button>}
-          <button onClick={() => run("letter", async () => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.tailored[job.id] || state.profile, job, k); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c } })); open("letter", job.id); })} disabled={!!busy}>
+          <button onClick={() => run("letter", async () => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id]); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c } })); open("letter", job.id); })} disabled={!!busy}>
             {busy === "letter" ? "Writing…" : state.covers[job.id] ? "Rewrite cover letter" : "Cover letter"}
           </button>
           {state.covers[job.id] && <button className="ghost" onClick={() => open("letter", job.id)}>View letter</button>}
@@ -336,6 +347,7 @@ function Settings({ state, update }: { state: State; update: Update }) {
       <select value={state.provider} onChange={(e) => update({ provider: e.target.value as Provider })}>
         {(Object.keys(PROVIDERS) as Provider[]).map((p) => <option key={p} value={p}>{PROVIDERS[p].label}{state[KEY_OF[p]] ? "" : " (no key)"}</option>)}
       </select>
+      <ModelPicker state={state} update={update} />
       <div className="small muted">API keys are stored only on this device / your laptop.</div>
       {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
         <div key={p}>
@@ -408,6 +420,8 @@ function Settings({ state, update }: { state: State; update: Update }) {
       <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
       <label>Awards & certifications (one per line)</label>
       <textarea value={p.awards.join("\n")} onChange={(e) => setP({ awards: e.target.value.split("\n") })} onBlur={(e) => setP({ awards: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
+      <label>More about you, for the AI only (languages such as Mandarin / Chinese, soft skills, achievements). Resumes and letters may only state facts from your resume and this box.</label>
+      <textarea value={state.about || ""} rows={4} placeholder={"e.g. Fluent in English and Mandarin (Chinese). Strong at teamwork, communication and problem solving."} onChange={(e) => update({ about: e.target.value })} />
       <label>Other skill lines, one per line (e.g. "Soft Skills: Analytical Thinking | Communication", "Interests: Data Analytics")</label>
       <textarea value={(p.additional || []).join("\n")} onChange={(e) => setP({ additional: e.target.value.split("\n") })} onBlur={(e) => setP({ additional: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
 
@@ -456,6 +470,90 @@ function Credentials() {
         {savedUser && <button className="ghost" onClick={() => save(true)}>Clear</button>}
         <span className="status">{status || (savedUser ? `Saved for ${savedUser}` : "Not saved")}</span>
       </div>
+    </>
+  );
+}
+
+/**
+ * Model picker: every model the current key can see (provider's own models endpoint), with
+ * list prices per 1M tokens (OpenRouter's public price list) and an on-demand availability check.
+ */
+function ModelPicker({ state, update }: { state: State; update: Update }) {
+  const provider = state.provider;
+  const key = state[KEY_OF[provider]];
+  const picked = state.models?.[provider] || "";
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [prices, setPrices] = useState<Map<string, Price>>(new Map());
+  const [health, setHealth] = useState<Record<string, { ok: boolean; ms: number; note: string } | "checking">>({});
+  const [status, setStatus] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const load = async () => {
+    setHealth({});
+    if (!key) { setModels([]); setStatus("Add this provider's API key below to list its models."); return; }
+    setStatus("Loading models…");
+    try {
+      const [m, p] = await Promise.all([listModels(provider, key), priceTable()]);
+      setModels(m); setPrices(p);
+      setStatus(`${m.filter((x) => x.usable).length} text models (${m.length} total) for this key.`);
+    } catch (e) { setModels([]); setStatus((e as Error).message); }
+  };
+  useEffect(() => { void load(); }, [provider, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setPick = (id: string) => update((s) => ({ ...s, models: { ...s.models, [provider]: id } }));
+  const money = (n: number) => (n === 0 ? "free" : n < 0.1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`);
+  const priceText = (id: string) => { const p = priceFor(provider, id, prices); return p ? `${money(p.input)} in / ${money(p.output)} out` : "price n/a"; };
+  const healthText = (id: string) => { const h = health[id]; return !h ? "" : h === "checking" ? "checking…" : h.ok ? `✓ online ${h.ms}ms` : `✕ ${h.note}`; };
+  const check = async (ids: string[]) => {
+    setHealth((h) => ({ ...h, ...Object.fromEntries(ids.map((id) => [id, "checking" as const])) }));
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const id = ids[next++];
+        const r = await pingModel({ provider, key, model: id });
+        setHealth((h) => ({ ...h, [id]: r }));
+      }
+    };
+    await Promise.all(Array.from({ length: 5 }, worker)); // 5 at a time
+  };
+  const usable = models.filter((m) => m.usable);
+  const other = models.filter((m) => !m.usable);
+  const savedMissing = picked && !models.some((m) => m.id === picked);
+  const optionText = (m: ModelInfo) => [m.label, priceText(m.id), healthText(m.id)].filter(Boolean).join("  ·  ");
+  return (
+    <>
+      <label>Model (prices are USD per 1M tokens)</label>
+      <div className="row">
+        <select value={picked} onChange={(e) => setPick(e.target.value)} style={{ flex: 1 }}>
+          <option value="">Default: {PROVIDERS[provider].defaultModel}</option>
+          {savedMissing && <option value={picked}>{picked} (saved, not in list)</option>}
+          {usable.length > 0 && <optgroup label="Text models">{usable.map((m) => <option key={m.id} value={m.id}>{optionText(m)}</option>)}</optgroup>}
+          {other.length > 0 && <optgroup label="Other models (audio, image, embedding: will not work here)">{other.map((m) => <option key={m.id} value={m.id}>{optionText(m)}</option>)}</optgroup>}
+        </select>
+        <button className="ghost" onClick={() => void load()}>Refresh list</button>
+        <button className="ghost" disabled={!key} onClick={() => void check([picked || usable[0]?.id].filter(Boolean) as string[])}>Test selected</button>
+      </div>
+      <div className="status">{status}{picked && healthText(picked) ? ` Selected: ${healthText(picked)}` : ""}</div>
+      {models.length > 0 && (
+        <details open={showAll} onToggle={(e) => setShowAll((e.target as HTMLDetailsElement).open)}>
+          <summary className="small">All {models.length} models, prices and availability</summary>
+          <div className="actions">
+            <button className="ghost" onClick={() => void check(usable.map((m) => m.id))}>Check which text models are online ({usable.length})</button>
+            <span className="small muted">Sends one tiny request per model; costs a fraction of a cent in total.</span>
+          </div>
+          <table className="models">
+            <thead><tr><th>Model</th><th>Price per 1M tokens</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {models.map((m) => (
+                <tr key={m.id} className={m.usable ? "" : "muted"}>
+                  <td>{m.label}{m.usable ? "" : " (not for text)"}</td>
+                  <td>{priceText(m.id)}</td>
+                  <td>{healthText(m.id) || (m.usable ? <button className="ghost small" onClick={() => void check([m.id])}>Check</button> : "")}</td>
+                  <td>{m.usable && (picked === m.id ? <b>In use</b> : <button className="ghost small" onClick={() => setPick(m.id)}>Use</button>)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
     </>
   );
 }

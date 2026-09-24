@@ -22,6 +22,12 @@ export type State = {
   /** Which AI provider to use and one key per provider (all stored locally). */
   provider: "gemini" | "openai" | "qwen" | "anthropic";
   geminiKey: string; openaiKey: string; qwenKey: string; anthropicKey: string;
+  /** Exact model picked per provider ("" = provider default). */
+  models: Record<"gemini" | "openai" | "qwen" | "anthropic", string>;
+  /** Free-text facts from the user for the AI (languages, soft skills...). Allowed as resume facts; never printed as-is. */
+  about: string;
+  /** Jobs the user applied for: job id -> ISO date. */
+  applied: Record<string, string>;
   tailored: Record<string, Profile>; covers: Record<string, string>; keywords: Record<string, string[]>; saved: string[];
   /** Job list filters, copied from the portal's Employment Types / Programmes dropdowns. */
   employmentType: string; course: string;
@@ -81,7 +87,7 @@ export const DEFAULT_META: Meta = {
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
 export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
-export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
+export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
   [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");
 export const isDesktop = () => typeof window !== "undefined" && !!window.desktop;

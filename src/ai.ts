@@ -1,23 +1,115 @@
 import type { Job, Profile } from "./types";
-import { fromMarkdown } from "./markdown";
+import { fromMarkdown, toMarkdown } from "./markdown";
+import { groundProfile, inSource } from "./ground";
 
 export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
-export type AiConfig = { provider: Provider; key: string };
+/** model: the exact model id the user picked in Settings; "" = the provider default below. */
+export type AiConfig = { provider: Provider; key: string; model?: string };
 type Attachment = { mimeType: string; data: string };
 
-export const PROVIDERS: Record<Provider, { label: string; keyUrl: string; placeholder: string }> = {
-  gemini: { label: "Google Gemini", keyUrl: "https://aistudio.google.com/apikey", placeholder: "AIza…" },
-  openai: { label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", placeholder: "sk-…" },
-  qwen: { label: "Qwen (Alibaba DashScope)", keyUrl: "https://modelstudio.console.alibabacloud.com/?tab=model#/api-key", placeholder: "sk-…" },
-  anthropic: { label: "Claude (Anthropic)", keyUrl: "https://console.anthropic.com/settings/keys", placeholder: "sk-ant-…" },
+export const PROVIDERS: Record<Provider, { label: string; keyUrl: string; placeholder: string; defaultModel: string }> = {
+  gemini: { label: "Google Gemini", keyUrl: "https://aistudio.google.com/apikey", placeholder: "AIza…", defaultModel: "gemini-flash-latest (falls back on quota)" },
+  openai: { label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", placeholder: "sk-…", defaultModel: "gpt-4o-mini" },
+  qwen: { label: "Qwen (Alibaba DashScope)", keyUrl: "https://modelstudio.console.alibabacloud.com/?tab=model#/api-key", placeholder: "sk-…", defaultModel: "qwen-plus (qwen-vl-plus for images)" },
+  anthropic: { label: "Claude (Anthropic)", keyUrl: "https://console.anthropic.com/settings/keys", placeholder: "sk-ant-…", defaultModel: "claude-opus-5" },
 };
 
 const GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"];
+const OPENAI_BASE = "https://api.openai.com/v1";
+const QWEN_BASE = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const ANTHROPIC_HEADERS = (key: string) => ({ "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" });
 const stripFences = (t: string) => t.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 
-async function gemini(key: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
+async function getJson(url: string, headers: Record<string, string>) {
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error(`Could not list models (${r.status}): ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+
+export type ModelInfo = { id: string; label: string; usable: boolean };
+
+/** Every model this key can see. usable = works for text generation here (others are audio, image, embedding...). */
+export async function listModels(provider: Provider, key: string): Promise<ModelInfo[]> {
+  if (!key) throw new Error(`Add your ${PROVIDERS[provider].label} API key first.`);
+  const sortUsable = (list: ModelInfo[]) => list.sort((x, y) => Number(y.usable) - Number(x.usable) || x.id.localeCompare(y.id));
+  switch (provider) {
+    case "gemini": {
+      const out: ModelInfo[] = [];
+      let page = "";
+      do {
+        const d = await getJson(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000${page ? `&pageToken=${page}` : ""}`, { "x-goog-api-key": key });
+        for (const m of d.models || []) {
+          const id = String(m.name).replace(/^models\//, "");
+          const usable = (m.supportedGenerationMethods || []).includes("generateContent") && !/(embedding|imagen|veo|tts|image-generation|native-audio|live)/.test(id);
+          out.push({ id, label: m.displayName ? `${m.displayName} (${id})` : id, usable });
+        }
+        page = d.nextPageToken || "";
+      } while (page);
+      return sortUsable(out);
+    }
+    case "openai": {
+      const d = await getJson(`${OPENAI_BASE}/models`, { Authorization: `Bearer ${key}` });
+      return sortUsable((d.data || []).map((m: { id: string }) => ({
+        id: m.id, label: m.id,
+        usable: /^(gpt-|o\d|chatgpt-)/.test(m.id) && !/(audio|realtime|transcribe|tts|image|embedding|moderation|live|computer-use)/.test(m.id),
+      })));
+    }
+    case "qwen": {
+      const d = await getJson(`${QWEN_BASE}/models`, { Authorization: `Bearer ${key}` });
+      return sortUsable((d.data || []).map((m: { id: string }) => ({
+        id: m.id, label: m.id,
+        usable: /^(qwen|qwq|qvq)/.test(m.id) && !/(embedding|tts|asr|audio|rerank|image|wanx|livetranslate|realtime)/.test(m.id),
+      })));
+    }
+    case "anthropic": {
+      const d = await getJson("https://api.anthropic.com/v1/models?limit=1000", ANTHROPIC_HEADERS(key));
+      return (d.data || []).map((m: { id: string; display_name?: string }) => ({ id: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id, usable: true }));
+    }
+  }
+}
+
+/** USD per 1M tokens, from OpenRouter's public list (providers' own APIs do not publish prices). */
+export type Price = { input: number; output: number };
+let priceCache: Promise<Map<string, Price>> | null = null;
+export function priceTable(): Promise<Map<string, Price>> {
+  priceCache ??= fetch("https://openrouter.ai/api/v1/models")
+    .then((r) => (r.ok ? r.json() : { data: [] }))
+    .then((d) => new Map<string, Price>((d.data || []).map((m: { id: string; pricing?: { prompt?: string; completion?: string } }) =>
+      [m.id, { input: Number(m.pricing?.prompt || 0) * 1e6, output: Number(m.pricing?.completion || 0) * 1e6 }])))
+    .catch(() => { priceCache = null; return new Map<string, Price>(); });
+  return priceCache;
+}
+const VENDOR: Record<Provider, string> = { gemini: "google", openai: "openai", qwen: "qwen", anthropic: "anthropic" };
+export function priceFor(provider: Provider, id: string, table: Map<string, Price>): Price | undefined {
+  const undated = id.replace(/-(\d{4}-\d{2}-\d{2}|\d{8})$/, "");
+  const dotted = (x: string) => x.replace(/-(\d+)-(\d+)(?=$|-)/, "-$1.$2"); // claude-opus-4-8 -> claude-opus-4.8
+  for (const c of [id, dotted(id), undated, dotted(undated), undated.replace(/-(latest|preview.*)$/, "")]) {
+    const hit = table.get(`${VENDOR[provider]}/${c}`);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** Tiny live request to see if a model answers right now. Costs a few tokens. */
+export async function pingModel(cfg: AiConfig): Promise<{ ok: boolean; ms: number; note: string }> {
+  const t0 = performance.now();
+  try {
+    await Promise.race([
+      ai(cfg, "Reply with the single word OK.", "Reply with the single word OK.", false),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timed out after 30s")), 30000)),
+    ]);
+    return { ok: true, ms: Math.round(performance.now() - t0), note: "online" };
+  } catch (e) {
+    const msg = (e as Error).message;
+    const note = /429|quota|RESOURCE_EXHAUSTED|rate/i.test(msg) ? "rate-limited / no quota" : /404|not found|does not exist/i.test(msg) ? "not available" : /401|403|permission|access/i.test(msg) ? "no access" : msg.slice(0, 80);
+    return { ok: false, ms: Math.round(performance.now() - t0), note };
+  }
+}
+
+async function gemini(key: string, picked: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
   let last = "";
-  for (const model of GEMINI_MODELS) {
+  // A picked model is used exactly; the default walks a short fallback list on quota errors.
+  for (const model of picked ? [picked] : GEMINI_MODELS) {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -27,43 +119,79 @@ async function gemini(key: string, prompt: string, system: string, json: boolean
         generationConfig: { temperature: 0.4, responseMimeType: json ? "application/json" : "text/plain" },
       }),
     });
-    if (r.status === 429 || r.status === 404) { last = `${model}: ${r.status}`; continue; }
-    if (!r.ok) throw new Error((await r.text()).slice(0, 300));
+    if (!picked && (r.status === 429 || r.status === 404)) { last = `${model}: ${r.status}`; continue; }
+    if (!r.ok) throw new Error(`${model}: ${(await r.text()).slice(0, 300)}`);
     const data = await r.json();
     return (data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "").trim();
   }
   throw new Error(`Gemini unavailable (${last}). Free-tier quota? Try again in a minute.`);
 }
 
+/** OpenAI Responses API: needed for Responses-only models (Codex, "-pro", deep research). */
+async function openaiResponses(key: string, model: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
+  const content: unknown[] = [];
+  if (file) {
+    const url = `data:${file.mimeType};base64,${file.data}`;
+    content.push(file.mimeType.startsWith("image/") ? { type: "input_image", image_url: url } : { type: "input_file", filename: "resume.pdf", file_data: url });
+  }
+  content.push({ type: "input_text", text: prompt });
+  const r = await fetch(`${OPENAI_BASE}/responses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, instructions: system, input: [{ role: "user", content }], ...(json ? { text: { format: { type: "json_object" } } } : {}) }),
+  });
+  if (!r.ok) throw new Error(`${model}: ${(await r.text()).slice(0, 300)}`);
+  const data = await r.json();
+  const text = typeof data.output_text === "string" ? data.output_text
+    : (data.output || []).flatMap((o: { content?: { type: string; text?: string }[] }) => o.content || []).filter((c: { type: string }) => c.type === "output_text").map((c: { text?: string }) => c.text || "").join("");
+  return stripFences(text);
+}
+const RESPONSES_ONLY = /(codex|-pro|deep-research)/;
+
 /** OpenAI and Qwen share the chat-completions shape. */
 async function openaiCompatible(base: string, key: string, model: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
   const content: unknown[] = [];
   if (file) {
     if (file.mimeType.startsWith("image/")) content.push({ type: "image_url", image_url: { url: `data:${file.mimeType};base64,${file.data}` } });
-    else if (base.includes("openai.com")) content.push({ type: "file", file: { filename: "resume.pdf", file_data: `data:${file.mimeType};base64,${file.data}` } });
+    else if (base === OPENAI_BASE) content.push({ type: "file", file: { filename: "resume.pdf", file_data: `data:${file.mimeType};base64,${file.data}` } });
     else throw new Error("Qwen only accepts images here. Upload a photo/PNG of your resume, or switch provider to Gemini/Claude/OpenAI for PDFs.");
   }
   content.push({ type: "text", text: prompt });
+  // Reasoning models (o1/o3/o4, gpt-5) reject a custom temperature.
+  const temperature = /^(o\d|gpt-5)/.test(model) ? {} : { temperature: 0.4 };
   const r = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, temperature: 0.4, messages: [{ role: "system", content: system }, { role: "user", content }], ...(json ? { response_format: { type: "json_object" } } : {}) }),
+    body: JSON.stringify({ model, ...temperature, messages: [{ role: "system", content: system }, { role: "user", content }], ...(json ? { response_format: { type: "json_object" } } : {}) }),
   });
-  if (!r.ok) throw new Error((await r.text()).slice(0, 300));
+  if (!r.ok) {
+    const err = await r.text();
+    // Some OpenAI models only exist on the Responses API; retry there.
+    if (base === OPENAI_BASE && /v1\/responses|not a chat model|not supported in the v1\/chat/i.test(err)) return openaiResponses(key, model, prompt, system, json, file);
+    throw new Error(`${model}: ${err.slice(0, 300)}`);
+  }
   const data = await r.json();
   return stripFences(data.choices?.[0]?.message?.content || "");
 }
 
-async function anthropic(key: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
+async function anthropic(key: string, model: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
   const content: unknown[] = [];
   if (file) content.push({ type: file.mimeType === "application/pdf" ? "document" : "image", source: { type: "base64", media_type: file.mimeType, data: file.data } });
   content.push({ type: "text", text: json ? `${prompt}\n\nRespond with valid JSON only, no markdown.` : prompt });
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  // Server-side refusal fallbacks exist only on the newest models; other picks are sent plain.
+  const fallback = /^claude-(opus-5|fable-5)/.test(model);
+  const send = (max_tokens: number) => fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-opus-5", max_tokens: 16000, fallbacks: "default", system, messages: [{ role: "user", content }] }),
+    headers: { "Content-Type": "application/json", ...ANTHROPIC_HEADERS(key), ...(fallback ? { "anthropic-beta": "server-side-fallback-2026-07-01" } : {}) },
+    body: JSON.stringify({ model, max_tokens, ...(fallback ? { fallbacks: "default" } : {}), system, messages: [{ role: "user", content }] }),
   });
-  if (!r.ok) throw new Error((await r.text()).slice(0, 300));
+  let r = await send(16000);
+  if (r.status === 400) {
+    const err = await r.text();
+    if (!/max_tokens/i.test(err)) throw new Error(`${model}: ${err.slice(0, 300)}`);
+    r = await send(4096); // older models cap output lower
+  }
+  if (!r.ok) throw new Error(`${model}: ${(await r.text()).slice(0, 300)}`);
   const data = await r.json();
   if (data.stop_reason === "refusal") throw new Error(`Claude declined: ${data.stop_details?.explanation || "refusal"}`);
   return stripFences((data.content || []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join(""));
@@ -71,29 +199,50 @@ async function anthropic(key: string, prompt: string, system: string, json: bool
 
 export async function ai(cfg: AiConfig, prompt: string, system: string, json = false, file?: Attachment): Promise<string> {
   if (!cfg.key) throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
+  const picked = (cfg.model || "").trim();
   switch (cfg.provider) {
-    case "gemini": return gemini(cfg.key, prompt, system, json, file);
-    case "openai": return openaiCompatible("https://api.openai.com/v1", cfg.key, "gpt-4o-mini", prompt, system, json, file);
-    case "qwen": return openaiCompatible("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", cfg.key, file ? "qwen-vl-plus" : "qwen-plus", prompt, system, json, file);
-    case "anthropic": return anthropic(cfg.key, prompt, system, json, file);
+    case "gemini": return gemini(cfg.key, picked, prompt, system, json, file);
+    case "openai": {
+      const model = picked || "gpt-4o-mini";
+      return RESPONSES_ONLY.test(model) ? openaiResponses(cfg.key, model, prompt, system, json, file) : openaiCompatible(OPENAI_BASE, cfg.key, model, prompt, system, json, file);
+    }
+    case "qwen": {
+      // Image import needs a vision model; keep the pick if it is one.
+      const model = file ? (/(vl|omni|qvq)/.test(picked) ? picked : "qwen-vl-plus") : picked || "qwen-plus";
+      return openaiCompatible(QWEN_BASE, cfg.key, model, prompt, system, json, file);
+    }
+    case "anthropic": return anthropic(cfg.key, picked || "claude-opus-5", prompt, system, json, file);
   }
 }
 
 const jobText = (j: Job) =>
   JSON.stringify({ title: j.title, company: j.company, type: j.type, location: j.location, skills: j.skills, description: j.description.slice(0, 6000), requirements: j.requirements.slice(0, 3000) });
 
-const SYSTEM = "You are an expert resume writer and ATS (applicant tracking system) keyword optimisation specialist. Never invent employers, degrees, dates, tools or achievements the candidate did not list. Rewrite wording, ordering and emphasis only.";
+const SYSTEM = `You are an expert resume writer and ATS (applicant tracking system) keyword specialist.
+Hard rule: every fact you write - employers, roles, schools, dates, locations, skills, tools, languages, certifications, numbers and achievements - must be stated in the candidate's source material (their resume and their own notes). You may reword, reorder, condense and emphasise, and you may name a soft skill that a stated fact clearly demonstrates, but never add a fact, tool, metric or outcome they did not state. Never invent percentages or counts.`;
 
-export async function extractKeywords(cfg: AiConfig, job: Job): Promise<string[]> {
-  const out = await ai(cfg, `Extract 15-25 ATS keywords from this job posting: hard skills, tools, certifications, domain terms and the soft skills it stresses. Most important first. Return JSON: {"keywords": [string, ...]}.\n\nJob: ${jobText(job)}`, SYSTEM, true);
+/** The candidate's source of truth, as Markdown: their resume plus the free-text notes they typed. */
+export function sourceText(profile: Profile, notes: string): string {
+  return toMarkdown(profile, false) + (notes.trim() ? `\n## Notes from the candidate (not printed; usable facts)\n\n${notes.trim()}\n` : "");
+}
+
+export async function extractKeywords(cfg: AiConfig, job: Job, source: string): Promise<string[]> {
+  const out = await ai(cfg, `List 20-30 ATS keywords for this application, most important first, using the job posting's own wording.
+Include: hard skills, tools, certifications, domain terms, the soft skills the posting stresses (teamwork, communication, problem solving, adaptability, attention to detail...), and any languages it asks for (e.g. Mandarin / Chinese, Malay).
+Then read the candidate's resume and notes below and ADD every qualification of theirs that this job would value, especially languages (e.g. Mandarin, Chinese) and soft skills, phrased the way the posting or ATS would search for them.
+Return JSON: {"keywords": [string, ...]}.
+
+Job: ${jobText(job)}
+
+Candidate resume and notes (Markdown):
+${source}`, SYSTEM, true);
   const parsed = JSON.parse(out);
   const arr = Array.isArray(parsed) ? parsed : parsed.keywords;
-  return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  return Array.isArray(arr) ? [...new Set(arr.map(String).map((k: string) => k.trim()).filter(Boolean))] : [];
 }
 
 export function matchKeywords(keywords: string[], text: string) {
-  const t = text.toLowerCase();
-  const hit = keywords.filter((k) => t.includes(k.toLowerCase()));
+  const hit = keywords.filter((k) => inSource(k, text));
   return { hit, miss: keywords.filter((k) => !hit.includes(k)) };
 }
 
@@ -103,19 +252,40 @@ const PROFILE_SHAPE = `name, email, phone, location, links (all links joined wit
 const arrOr = <T,>(v: unknown, fb: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fb);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[]): Promise<Profile> {
-  const out = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same keys as the profile: ${PROFILE_SHAPE}
-Rules: keep contact details, employers, schools, locations, dates and degrees unchanged, and keep every section. Write a 3-line summary targeted at the role. Reorder skills so the job's keywords the candidate genuinely has come first; add a keyword only if the candidate's history clearly shows it. Rewrite bullets with strong action verbs and measurable impact, weaving in the ATS keywords naturally. Fit one A4 page (max ~4 bullets per entry).
+/** Second pass: an independent fact-check of the draft against the source, fixing or removing unsupported claims. */
+async function factCheck(cfg: AiConfig, source: string, draft: string, json: boolean): Promise<string> {
+  return ai(cfg, `Fact-check this ${json ? "resume JSON" : "cover letter"} against the candidate's source material.
+For every sentence, bullet, skill and summary line: if any part is not stated in the source (or is a soft skill not clearly demonstrated by a stated fact), rewrite it so it is fully supported, or delete it. Keep everything that is supported, including the ATS wording and soft skills. Do not add anything new.
+Return ${json ? "the corrected JSON with exactly the same keys and structure" : "only the corrected letter as plain text"}.
+
+Source (Markdown):
+${source}
+
+Draft:
+${draft}`, SYSTEM, json);
+}
+
+export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string): Promise<Profile> {
+  const source = sourceText(profile, notes);
+  const draft = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same keys and entries as the profile JSON: ${PROFILE_SHAPE}
+Rules:
+- Keep contact details, employers, schools, locations, dates, degrees, entry order and every section unchanged; rewrite only the summary, bullets, skill order and the labelled lines.
+- Write a 3-line summary targeted at the role.
+- Weave in as many of the ATS keywords as the source supports, and as many soft skills as possible (teamwork, communication, leadership, problem solving, adaptability, ownership...): phrase bullets so the soft skill a stated fact demonstrates is named, e.g. "collaborated with designers" -> "cross-functional collaboration and communication".
+- Languages and other qualifications from the candidate's notes (e.g. Mandarin / Chinese) that match the job go on a labelled line such as "Languages: English | Mandarin".
+- Put the candidate's skills that match the ATS keywords first. Only use skills stated in the source.
+- Use only numbers that appear in the source. Max ~4 bullets per entry so it fits one A4 page.
+
 ATS keywords: ${JSON.stringify(keywords)}
-Profile: ${JSON.stringify(profile)}
-Job: ${jobText(job)}`, SYSTEM, true);
-  const p = JSON.parse(out) as Partial<Profile>;
-  return {
-    ...profile, ...p,
-    skills: arrOr(p.skills, profile.skills), experience: arrOr(p.experience, profile.experience), education: arrOr(p.education, profile.education),
-    projects: arrOr(p.projects, profile.projects), awards: arrOr(p.awards, profile.awards),
-    sections: arrOr(p.sections, profile.sections || []), additional: arrOr(p.additional, profile.additional || []),
-  };
+Job: ${jobText(job)}
+
+Candidate source (Markdown, the only facts you may use):
+${source}
+
+Profile JSON to transform:
+${JSON.stringify(profile)}`, SYSTEM, true);
+  const checked = await factCheck(cfg, source, draft, true);
+  return groundProfile(profile, JSON.parse(checked) as Partial<Profile>, source);
 }
 
 const isText = (f: File) => /\.(md|markdown|txt)$/i.test(f.name) || /^text\//.test(f.type);
@@ -148,9 +318,15 @@ export async function parseResume(cfg: AiConfig, file: File): Promise<Profile> {
   };
 }
 
-export function coverLetter(cfg: AiConfig, profile: Profile, job: Job, keywords: string[]): Promise<string> {
-  return ai(cfg, `Write a cover letter (250-350 words, 3-4 paragraphs) from the candidate to ${job.company} for the ${job.title} role. Specific, warm, professional. Use the ATS keywords naturally where the candidate's background supports them. No placeholders like [Company]. Start with "Dear Hiring Manager," and end with "Sincerely," and the candidate's name. Plain text only.
+export async function coverLetter(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string, tailored?: Profile): Promise<string> {
+  const source = sourceText(profile, notes);
+  const draft = await ai(cfg, `Write a cover letter (250-350 words, 3-4 paragraphs) from the candidate to ${job.company} for the ${job.title} role. Specific, warm, professional.
+Use as many of the ATS keywords and soft skills as the source supports, each tied to a stated experience; mention languages from the notes (e.g. Mandarin / Chinese) if the job values them. Use only facts and numbers from the source. No placeholders like [Company]. Start with "Dear Hiring Manager," and end with "Sincerely," and the candidate's name. Plain text only.
 ATS keywords: ${JSON.stringify(keywords)}
-Candidate: ${JSON.stringify(profile)}
-Job: ${jobText(job)}`, SYSTEM);
+Job: ${jobText(job)}
+${tailored ? `Tailored resume emphasis for this job (wording only; facts must still come from the source):\n${toMarkdown(tailored, false)}\n` : ""}
+Candidate source (Markdown, the only facts you may use):
+${source}`, SYSTEM);
+  const checked = await factCheck(cfg, source, draft, false);
+  return checked.trim() || draft;
 }
