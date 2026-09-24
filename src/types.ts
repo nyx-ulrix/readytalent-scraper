@@ -28,6 +28,8 @@ export type State = {
   about: string;
   /** Jobs the user applied for: job id -> ISO date. */
   applied: Record<string, string>;
+  /** When each tailored resume / cover letter was last generated: "resume:<jobId>" | "letter:<jobId>" -> ISO date. */
+  generatedAt: Record<string, string>;
   tailored: Record<string, Profile>; covers: Record<string, string>; keywords: Record<string, string[]>; saved: string[];
   /** Job list filters, copied from the portal's Employment Types / Programmes dropdowns. */
   employmentType: string; course: string;
@@ -87,7 +89,7 @@ export const DEFAULT_META: Meta = {
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
 export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
-export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
+export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
   [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");
 export const isDesktop = () => typeof window !== "undefined" && !!window.desktop;

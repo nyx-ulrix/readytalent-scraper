@@ -3,6 +3,11 @@ import { fetchJobs, fetchMeta, useAppState } from "./store";
 import { PROVIDERS, coverLetter, extractKeywords, listModels, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
+/** "24 Sept 2026, 3:42 pm" for when a tailored resume / letter was generated; "" if unknown (made before timestamps). */
+const stamp = (s: State, kind: "resume" | "letter", jobId: string) => {
+  const iso = s.generatedAt?.[`${kind}:${jobId}`];
+  return iso ? new Date(iso).toLocaleString("en-SG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+};
 const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]], model: s.models?.[s.provider] || "" });
 import { LetterPage, ResumePage } from "./Resume";
 import { toMarkdown } from "./markdown";
@@ -232,14 +237,16 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
             {appliedOn ? `✓ Applied ${new Date(appliedOn).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark applied"}
           </button>
           <button className="ghost" onClick={() => run("kw", async () => { await getKeywords(true); })} disabled={!!busy}>{keywords ? "Refresh keywords" : "ATS keywords"}</button>
-          <button onClick={() => run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || ""); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t } })); open("resume", job.id); })} disabled={!!busy}>
+          <button onClick={() => run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || ""); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${job.id}`]: new Date().toISOString() } })); open("resume", job.id); })} disabled={!!busy}>
             {busy === "resume" ? "Tailoring…" : state.tailored[job.id] ? "Re-tailor resume" : "Tailor resume"}
           </button>
           {state.tailored[job.id] && <button className="ghost" onClick={() => open("resume", job.id)}>View resume</button>}
-          <button onClick={() => run("letter", async () => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id]); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c } })); open("letter", job.id); })} disabled={!!busy}>
+          {stamp(state, "resume", job.id) && <span className="small muted">Tailored {stamp(state, "resume", job.id)}</span>}
+          <button onClick={() => run("letter", async () => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id]); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c }, generatedAt: { ...(s.generatedAt || {}), [`letter:${job.id}`]: new Date().toISOString() } })); open("letter", job.id); })} disabled={!!busy}>
             {busy === "letter" ? "Writing…" : state.covers[job.id] ? "Rewrite cover letter" : "Cover letter"}
           </button>
           {state.covers[job.id] && <button className="ghost" onClick={() => open("letter", job.id)}>View letter</button>}
+          {stamp(state, "letter", job.id) && <span className="small muted">Written {stamp(state, "letter", job.id)}</span>}
           <a className="small" href={PORTAL} target="_blank" rel="noreferrer" onClick={(e) => { if (isDesktop()) { e.preventDefault(); window.desktop!.openPortal(); } }}>Apply on ReadyTalent ↗</a>
         </div>
         <div className={`status ${status ? "err" : ""}`}>{status || (busy === "kw" ? "Extracting keywords…" : "")}</div>
@@ -293,8 +300,8 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
       <div className="toolbar app-chrome">
         <select value={value} onChange={(e) => { const [kind, jobId] = e.target.value.split(/:(.*)/); setDoc({ kind: kind as "resume" | "letter", jobId }); }}>
           <option value="resume:">Base resume</option>
-          {Object.keys(state.tailored).map((id) => <option key={id} value={`resume:${id}`}>Resume · {label(id)}</option>)}
-          {Object.keys(state.covers).map((id) => <option key={id} value={`letter:${id}`}>Cover letter · {label(id)}</option>)}
+          {Object.keys(state.tailored).map((id) => <option key={id} value={`resume:${id}`}>Resume · {label(id)}{stamp(state, "resume", id) ? ` · ${stamp(state, "resume", id)}` : ""}</option>)}
+          {Object.keys(state.covers).map((id) => <option key={id} value={`letter:${id}`}>Cover letter · {label(id)}{stamp(state, "letter", id) ? ` · ${stamp(state, "letter", id)}` : ""}</option>)}
         </select>
         <select value={state.template} onChange={(e) => update({ template: e.target.value as Template })}>
           <option value="standard">Standard</option>
