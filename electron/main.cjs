@@ -44,6 +44,17 @@ function serve() {
       if (url.pathname === "/api/jobs") return json(res, readJson("jobs.json", []));
       if (url.pathname === "/api/meta") return json(res, readJson("meta.json", { employmentTypes: [], programmes: [] }));
       if (url.pathname === "/api/board-jobs") return json(res, readJson("board-jobs.json", []));
+      if (url.pathname === "/api/geocode" && req.method === "POST") {
+        let body = "";
+        req.on("data", (c) => { body += c; if (body.length > 1e5) req.destroy(); });
+        req.on("end", async () => {
+          try {
+            const { queries = [], region = "" } = JSON.parse(body || "{}");
+            json(res, { results: await geocodeMany(queries.slice(0, 25).map(String), String(region)) });
+          } catch (e) { json(res, { error: String(e.message || e) }, 400); }
+        });
+        return;
+      }
       if (url.pathname === "/api/info") return json(res, { lan: lanUrls() });
       if (url.pathname === "/api/state") {
         if (req.method === "GET") return json(res, readJson("state.json", null));
@@ -66,6 +77,50 @@ function serve() {
     srv.on("error", reject);
     srv.listen(PORT, "0.0.0.0", resolve);
   });
+}
+
+/* ---- Address lookup for the "Near … within N km" filter ----
+ * OneMap (Singapore's free map service) first: it answers specific places and postcodes without an account.
+ * Broad places ("Geylang") fall back to OpenStreetMap Nominatim, which allows about one request a second and
+ * asks for an identifying User-Agent. Every answer, including "not found", is cached in geocache.json. */
+const NOMINATIM_UA = "AutoResume/1.x (https://github.com/nyx-ulrix/readytalent-scraper)";
+let lastNominatim = 0;
+async function oneMap(q) {
+  const r = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=N&pageNum=1`);
+  const d = r.ok ? await r.json() : {};
+  const hit = (d.results || [])[0];
+  return hit ? { lat: Number(hit.LATITUDE), lon: Number(hit.LONGITUDE), label: hit.SEARCHVAL } : null;
+}
+async function nominatim(q) {
+  const wait = lastNominatim + 1100 - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastNominatim = Date.now();
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { "User-Agent": NOMINATIM_UA } });
+  const d = r.ok ? await r.json() : [];
+  return d[0] ? { lat: Number(d[0].lat), lon: Number(d[0].lon), label: d[0].display_name } : null;
+}
+async function geocodeMany(queries, region) {
+  const cache = readJson("geocache.json", {});
+  const out = {};
+  let changed = false;
+  for (const q of [...new Set(queries.map((x) => x.trim()).filter(Boolean))]) {
+    const key = `${q.toLowerCase()}|${region.toLowerCase()}`;
+    if (!(key in cache)) {
+      let hit = null;
+      try {
+        hit = await oneMap(q);
+        const withRegion = region && !q.toLowerCase().includes(region.toLowerCase()) ? `${q}, ${region}` : q;
+        if (!hit) hit = await nominatim(withRegion);
+        if (!hit && withRegion !== q) hit = await nominatim(q);
+      } catch { continue; } // network trouble: don't cache, try again next time
+      cache[key] = hit;
+      changed = true;
+      await sleep(250); // be gentle with OneMap
+    }
+    out[q] = cache[key];
+  }
+  if (changed) writeJson("geocache.json", cache);
+  return out;
 }
 
 /* ---- ReadyTalent sign-in credentials: encrypted with the Windows user account (DPAPI), never sent to the LAN ---- */

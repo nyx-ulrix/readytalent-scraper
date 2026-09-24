@@ -41,6 +41,8 @@ export type State = {
   knownSkills: string[]; omitSkills: string[];
   /** Ask before every AI action (they consume API tokens). */
   warnTokens: boolean;
+  /** Job list proximity filter: a place (address, postcode, MRT station) and a radius in km (0 = no limit, just sort/show distance). */
+  near: { place: string; km: number };
   /** Search page (LinkedIn / Indeed). */
   interests: string[]; roleSuggestions: string[]; searchTerms: { term: string; on: boolean }[];
   boardSearch: {
@@ -106,7 +108,7 @@ export const DEFAULT_META: Meta = {
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
 export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", portfolio: "", linkedin: "", github: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
-export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, knownSkills: [], omitSkills: [], warnTokens: true, interests: [], roleSuggestions: [], searchTerms: [], boardSearch: { location: "Singapore", linkedin: true, indeed: true, perTerm: 10, days: 14, jobTypes: [], workplace: [], levels: [], companyInclude: "", companyExclude: "" }, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
+export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, knownSkills: [], omitSkills: [], warnTokens: true, near: { place: "", km: 10 }, interests: [], roleSuggestions: [], searchTerms: [], boardSearch: { location: "Singapore", linkedin: true, indeed: true, perTerm: 10, days: 14, jobTypes: [], workplace: [], levels: [], companyInclude: "", companyExclude: "" }, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
   [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");
 export const isDesktop = () => typeof window !== "undefined" && !!window.desktop;

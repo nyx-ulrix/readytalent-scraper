@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchBoardJobs, fetchJobs, fetchMeta, useAppState } from "./store";
+import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, useAppState } from "./store";
+import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
 import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
@@ -11,7 +12,7 @@ const stamp = (s: State, kind: "resume" | "letter", jobId: string) => {
 const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]], model: s.models?.[s.provider] || "" });
 import { LetterPage, MIN_FONT_PT, ResumePage, type FitInfo } from "./Resume";
 import { MARKER, toMarkdown } from "./markdown";
-import { PAY_FILTERS, monthlyPay, payPasses } from "./pay";
+import { monthlyPay, payPasses } from "./pay";
 import { MAX_LEADERSHIP, MAX_PROJECTS, isLeadership } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
@@ -100,9 +101,38 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const options = (fromMeta: string[], fromJobs: string[]) => [...new Set([...fromMeta, ...fromJobs.filter(Boolean).sort()])];
   const types = useMemo(() => options(meta.employmentTypes, jobs.map((j) => j.type)), [meta, jobs]);
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
-  const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied">(mode === "applied" ? "applied" : "posted");
+  const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest">(mode === "applied" ? "applied" : "posted");
   const [hideExpired, setHideExpired] = useState(true);
-  const [pay, setPay] = useState("");
+  const [minPay, setMinPay] = useState("");
+  const [payListed, setPayListed] = useState(false);
+  const pay = Number(minPay) > 0 ? String(Number(minPay)) : payListed ? "shown" : "";
+  // Proximity: coordinates for your place and for each job address (looked up on demand, cached by the laptop app).
+  const near = { ...defaultState.near, ...(state.near || {}) };
+  const [nearDraft, setNearDraft] = useState(near.place);
+  const [origin, setOrigin] = useState<LatLon | null>(null);
+  const [coords, setCoords] = useState<Record<string, LatLon | null>>({});
+  const [geoStatus, setGeoStatus] = useState("");
+  const region = state.boardSearch?.location || "Singapore";
+  const distOf = (j: Job) => { const c = origin && coords[placeQuery(j.location)]; return origin && c ? distanceKm(origin, c) : null; };
+  const locate = async (place: string) => {
+    update((s) => ({ ...s, near: { ...near, place } }));
+    if (!place.trim()) { setOrigin(null); setGeoStatus(""); return; }
+    try {
+      setGeoStatus(`Finding "${place}"…`);
+      const o = (await geocode([place], region))[place.trim()];
+      if (!o) { setOrigin(null); setGeoStatus(`Couldn't find "${place}". Try a postcode, street or MRT station.`); return; }
+      setOrigin(o);
+      const todo = [...new Set(jobs.map((j) => placeQuery(j.location)).filter(Boolean))].filter((q) => !(q in coords));
+      const found: Record<string, LatLon | null> = {};
+      for (let i = 0; i < todo.length; i += 25) {
+        setGeoStatus(`Locating job addresses ${Math.min(i + 25, todo.length)} of ${todo.length}… (first time only)`);
+        Object.assign(found, await geocode(todo.slice(i, i + 25), region));
+        setCoords((c) => ({ ...c, ...found }));
+      }
+      setGeoStatus("");
+    } catch (e) { setGeoStatus((e as Error).message); }
+  };
+  useEffect(() => { if (near.place) void locate(near.place); }, [jobs.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // "$1,200 - $1,500" -> 1200; "" -> 0
   const salaryNum = monthlyPay; // monthly equivalent, so yearly/hourly pay compares fairly
   // Portal dates are d/m/yyyy; fall back to scrapedAt.
@@ -137,9 +167,11 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       (appliedFilter !== "applied" || !!state.applied?.[j.id]) && (appliedFilter !== "open" || !state.applied?.[j.id]) &&
       (!hideExpired || !j.expired) &&
       payPasses(j.salary, pay) &&
-      (!needle || [j.title, j.company, j.skills.join(" "), j.description].join(" ").toLowerCase().includes(needle));
+      (!origin || !(near.km > 0) || (distOf(j) ?? Infinity) <= near.km) &&
+      (!needle || [j.title, j.company, j.location, j.skills.join(" "), j.description].join(" ").toLowerCase().includes(needle));
     });
     const cmp: Record<typeof sort, (a: Job, b: Job) => number> = {
+      nearest: (a, b) => (distOf(a) ?? Infinity) - (distOf(b) ?? Infinity),
       posted: (a, b) => (dmy(b.posted) || Date.parse(b.posted) || Date.parse(b.scrapedAt)) - (dmy(a.posted) || Date.parse(a.posted) || Date.parse(a.scrapedAt)),
       applied: (a, b) => (state.applied?.[b.id] || "").localeCompare(state.applied?.[a.id] || ""),
       deadline: (a, b) => (dmy(a.deadline) || Infinity) - (dmy(b.deadline) || Infinity),
@@ -148,7 +180,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort]);
-  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, state.saved, state.applied, skillsWant, skillsAvoid]);
+  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid]);
 
   useEffect(() => window.desktop?.onProgress((p) => setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`)), []);
 
@@ -177,7 +209,17 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
             <div className="small muted">Scraping runs on the laptop app. This device shows the jobs it saved.</div>
           ))}
           <div className="status">{status || `${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
-          <input placeholder="Search title, company, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="Search title, company, location, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="row near-row">
+            <input placeholder="Near: postcode, street or MRT" value={nearDraft} onChange={(e) => setNearDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void locate(nearDraft); }} style={{ flex: 1, minWidth: 140 }} />
+            <label className="small muted" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>within
+              <input type="number" min={0} step={1} inputMode="numeric" value={near.km || ""} placeholder="any" style={{ width: 64 }}
+                onChange={(e) => update((s) => ({ ...s, near: { ...near, km: Math.max(0, Number(e.target.value) || 0) } }))} /> km</label>
+            <button className="ghost" onClick={() => void locate(nearDraft)}>{origin ? "Update" : "Go"}</button>
+            {origin && <button className="ghost" onClick={() => { setNearDraft(""); void locate(""); }}>✕</button>}
+          </div>
+          {(geoStatus || origin) && <div className="small muted">{geoStatus || `Distances from ${near.place}${near.km > 0 ? `; showing jobs within ${near.km} km` : ""}. Jobs without a street-level address (e.g. just "Singapore") are hidden while a distance is set.`}</div>}
           {rt ? (
             <>
               <select value={type} onChange={(e) => update({ employmentType: e.target.value })}>
@@ -217,6 +259,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           <div className="row">
             <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} style={{ flex: 1 }}>
               <option value="posted">Newest first</option>
+              {origin && <option value="nearest">Nearest first</option>}
               <option value="deadline">Closing soonest</option>
               <option value="salary">Salary: high to low</option>
               <option value="title">Title A–Z</option>
@@ -228,12 +271,13 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
               <option value="open">Not applied</option>
               <option value="applied">Applied</option>
             </select>}
-            <select value={pay} onChange={(e) => setPay(e.target.value)} style={{ width: "auto" }} title="Pay is compared as a monthly figure (yearly ÷ 12, hourly × 173)">{PAY_FILTERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <input type="number" min={0} step={100} inputMode="numeric" placeholder="Min pay $/mo" value={minPay} onChange={(e) => setMinPay(e.target.value)} style={{ width: 118 }} title="Pay is compared per month (yearly ÷ 12, hourly × 173)" />
+            <label className="small muted" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}><input type="checkbox" checked={payListed} onChange={(e) => setPayListed(e.target.checked)} style={{ width: "auto" }} />pay listed</label>
           </div>
           <div className="row">
             <label className="small muted" style={{ margin: 0, flex: 1 }}><input type="checkbox" checked={hideExpired} onChange={(e) => setHideExpired(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Hide delisted · {shown.length} of {jobs.length}</label>
             <button className="ghost" onClick={() => setShowSkills(!showSkills)}>Skills{skillsWant.length + skillsAvoid.length ? ` (${skillsWant.length + skillsAvoid.length})` : ""}</button>
-            {((rt && (type || course)) || src || emp || work || lvl || company || skillsWant.length || skillsAvoid.length || q || pay) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setPay(""); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); }}>Clear</button> : null}
+            {((rt && (type || course)) || src || emp || work || lvl || company || skillsWant.length || skillsAvoid.length || q || pay) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); }}>Clear</button> : null}
           </div>
           {showSkills && (
             <div className="skills-panel">
@@ -258,7 +302,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}`} onClick={() => setSel(j)}>
             <div className="t">{state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
-            <div className="m">{[!rt ? sourceOf(j) : "", j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : ""].filter(Boolean).join(" · ")}</div>
+            <div className="m">{[!rt ? sourceOf(j) : "", j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
         ))}
         {!shown.length && <div className="empty">{jobs.length ? "No matches." : { rt: "No jobs yet. Save your ReadyTalent sign-in in Settings, then Scrape.", boards: "No results yet. Pick search terms above and press Search.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_META, defaultState, type Job, type Meta, type Profile, type State } from "./types";
 import { splitLinks } from "./links";
+import type { LatLon } from "./geo";
 
 const KEY = "autoresume";
 const withTimeout = (p: Promise<Response>, ms: number) =>
@@ -48,6 +49,13 @@ export async function fetchJobs(): Promise<Job[]> {
 /** Portal's exact lists once scraped; built-in defaults before that. */
 export async function fetchBoardJobs(): Promise<Job[]> {
   try { const r = await fetch("/api/board-jobs"); return r.ok ? r.json() : []; } catch { return []; }
+}
+
+/** Look up places through the laptop app (OneMap, then OpenStreetMap; cached there). 25 at a time. */
+export async function geocode(queries: string[], region: string): Promise<Record<string, LatLon | null>> {
+  const r = await fetch("/api/geocode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ queries, region }) });
+  if (!r.ok) throw new Error("Location lookup is only available while the laptop app is running.");
+  return (await r.json()).results || {};
 }
 
 export async function fetchMeta(): Promise<Meta> {

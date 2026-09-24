@@ -273,14 +273,31 @@ const withConfirmed = (notes: string, p?: SkillPrefs) => (p?.include.length ? `$
 
 export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, keywords: string[], notes: string, prefs?: SkillPrefs): Promise<Profile> {
   const source = sourceText(profile, withConfirmed(notes, prefs));
-  const draft = await ai(cfg, `Tailor this candidate's resume for the job. Return JSON with EXACTLY the same keys and entries as the profile JSON: ${PROFILE_SHAPE}
-Rules:
-- Keep contact details, employers, schools, locations, dates, degrees, entry order and every section unchanged; rewrite only the summary, bullets, skill order and the labelled lines.
-- Write a 3-line summary targeted at the role.
-- Weave in as many of the ATS keywords as the source supports, and as many soft skills as possible (teamwork, communication, leadership, problem solving, adaptability, ownership...): phrase bullets so the soft skill a stated fact demonstrates is named, e.g. "collaborated with designers" -> "cross-functional collaboration and communication".
-- Languages and other qualifications from the candidate's notes (e.g. Mandarin / Chinese) that match the job go on a labelled line such as "Languages: English | Mandarin".
-- Put the candidate's skills that match the ATS keywords first. Only use skills stated in the source.
-- It must fit on ONE A4 page. Keep every education and work-experience entry. Projects: include at most ${MAX_PROJECTS}, the most relevant to this job, most relevant first. Any leadership / co-curricular section: at most ${MAX_LEADERSHIP} entries, the most relevant first. In other extra sections keep only what helps for this job. Copy the title and org of every entry you keep exactly. At most 3 short bullets per entry; aim for about 450-550 words in total.
+  const draft = await ai(cfg, `Curate this candidate's resume for ONE job. A recruiter will scan it for about 30 seconds and must see, in the top half of the page, why this candidate fits THIS role.
+
+Return JSON with the same keys as the profile JSON: ${PROFILE_SHAPE}
+For every entry you keep, copy its title, org, location and dates exactly.
+
+SELECT (what appears)
+- Education and work experience: keep every entry.
+- Projects: at most ${MAX_PROJECTS}, the ones that best prove this job's core requirements, most relevant first. Prefer substantial, role-relevant work over coursework and small practice projects.
+- Leadership / co-curricular: at most ${MAX_LEADERSHIP}, most relevant first; prefer completed roles over upcoming ones.
+- Other extra sections (e.g. hackathons): keep an entry only if it adds something not already shown. If a hackathon's project is already listed under Projects, drop the hackathon entry; return the section with an empty "entries" list if nothing is left.
+
+WRITE (how it reads)
+- summary: 2 sentences, 35-55 words. Open with who they are and the role type they are applying for, then their 2-3 strongest pieces of evidence for this job. No list of technologies, no generic claims ("passionate", "proven", "strong foundation"), no mention of interests.
+- Bullets: education 0-1 (relevant coursework only), work experience 2-3, projects 2-3, leadership 1-2. Each bullet is one line or a little more: strong verb + what was built or done + how (the tools that matter for this job) + result, but only a result the source states. Lead each entry with its most job-relevant bullet.
+- Reframe, don't invent: for business-analyst roles stress requirements, stakeholders, documentation and data quality; for engineering roles stress design, integration, testing and debugging; for performance roles stress measurement and benchmarking methodology; for data/security roles stress data validation, access control, audit and credential handling. Use only what the source supports.
+- Tone down claims the source does not back with evidence: avoid "zero-downtime", "secure", "production-ready", "high-quality", "near-optimal", "optimised", "robust" unless the source gives a measurement or mechanism; describe the mechanism instead (e.g. "deploys behind a Caddy reverse proxy with rollbacks").
+- Name a soft skill only where a stated fact shows it (e.g. coordinating design, QA and localisation teams -> cross-functional communication). Aim to show 3-5 relevant soft skills across the page.
+
+SKILLS
+- skills: the 12-18 technical skills most relevant to this job, most relevant first, only from the source. No soft skills, languages or job-description phrases here.
+- additional: at most 3 lines: "Soft Skills: ..." (at most 5, relevant to the job), "Languages: ..." (from the source or notes, e.g. English | Mandarin), and one more line only if the job needs it. Drop "Interests" unless it directly helps.
+- ATS keywords: use a keyword only where the candidate's experience shows it, in the job's own wording, inside bullets or the skills line. Never paste a list of keywords, and never add a keyword just because the job mentions it.
+
+FIT
+- The page must fit ONE A4 page at readable size: about 380-480 words in total.
 - Use only numbers that appear in the source.${prefsText(prefs)}
 
 ATS keywords: ${JSON.stringify(keywords)}

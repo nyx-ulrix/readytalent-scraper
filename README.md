@@ -48,6 +48,7 @@ On a Mac, closing the window does not quit AutoResume, so a tablet can still con
 ## Using it
 
 - **ReadyTalent tab:** press **Scrape ReadyTalent**. It signs in and saves every job with title, company, pay, skills needed and description. Filter by type, programme, pay and skills.
+- **Location and distance (every job list):** the search box also matches locations. Type a place in **Near** (postcode, street or MRT station), set **within [number] km**, and press Go to see only jobs within that distance, with the distance on each job and a **Nearest first** sort. Addresses are looked up with Singapore's OneMap, then OpenStreetMap, once each and cached; the first lookup of a long list can take a few minutes. Jobs listed only as "Singapore" or "Remote" have no address to measure and are hidden while a distance is set. Pay is filtered by typing a minimum monthly amount (yearly and hourly pay are converted).
 - **Search tab:** add the roles you want or type terms like "project manager, technical sales", set filters (job type, remote/hybrid, experience level, companies, pay) and press **Search**. Nothing is fetched until you press Search.
 - **On any job:**
   - ✦ **ATS keywords** lists what the job asks for. Tap a keyword once for "I have this" or twice for "leave out".
