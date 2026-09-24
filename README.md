@@ -1,10 +1,14 @@
 # AutoResume
 
-Scrapes every job from SIT's ReadyTalent portal (title, company, salary, skills needed, description) and turns your details into a tailored, ATS-keyword-optimised A4 resume and cover letter with Gemini. Everything is stored locally.
+Scrapes every job from SIT's ReadyTalent portal (and, when you ask, LinkedIn and Indeed) and turns your details into tailored, ATS-optimised A4 resumes and cover letters with Gemini, OpenAI, Qwen or Claude. Everything is stored locally. Runs on Windows and macOS.
 
-## Laptop (Windows)
+**Download:** [latest release](https://github.com/nyx-ulrix/readytalent-scraper/releases/latest) (Windows installer, macOS for Apple Silicon and Intel).
 
-Install `release/AutoResume-Setup-*.exe` (or `pnpm install && pnpm start` to run from source).
+## Laptop (Windows or Mac)
+
+- **Windows:** run `AutoResume-Setup-<version>-win-x64.exe`. If SmartScreen warns about an unknown publisher, choose More info → Run anyway.
+- **macOS:** open the `.dmg` for your Mac (`arm64` = Apple Silicon, `x64` = Intel) and drag AutoResume to Applications. The app isn't notarised, so right-click it → Open the first time; if macOS says it is damaged, run `xattr -dr com.apple.quarantine /Applications/AutoResume.app` once.
+- From source: `pnpm install && pnpm start`.
 
 1. **Settings** → paste your Gemini API key (free at aistudio.google.com/apikey), save your ReadyTalent sign-in (SIT username + password, encrypted with Windows DPAPI in `%APPDATA%\autoresume\creds.bin`, never sent to the tablet) and fill in your details.
 2. **Jobs → Scrape ReadyTalent**. The app opens the portal in a hidden in-memory window, signs in through SIT's ADFS page with your saved login (fresh session every launch), calls the portal's own job API and saves to `%APPDATA%\autoresume\jobs.json`. Re-scraping only fetches new jobs. If sign-in needs your attention (wrong password, MFA), the window is shown so you can finish it, then click Scrape again. **Open portal** shows the window at any time.
@@ -27,7 +31,7 @@ Install `release/AutoResume-Setup-*.exe` (or `pnpm install && pnpm start` to run
 
 **AI only on click.** Every AI action is marked ✦ and asks for confirmation first, naming the provider and model and warning that it consumes API tokens. The warning can be turned off in Settings.
 
-Windows Firewall will ask to allow AutoResume on the first launch; allow it so the tablet can connect.
+Windows Firewall or macOS will ask to allow incoming connections on the first launch; allow it so the tablet can connect. On a Mac, closing the window keeps AutoResume running; click its Dock icon to reopen it.
 
 ## Tablet (Android / iPad)
 
@@ -45,7 +49,10 @@ node test/ground.test.ts       # grounding guard: AI output may only state facts
 node test/boards.test.cjs      # LinkedIn/Indeed filter rules
 node test/pay.test.ts          # pay normalisation (yearly/hourly -> monthly)
 node test/linkify.test.ts      # clickable-link detection and link fields
-pnpm dist                      # Windows installer -> release/
+pnpm run dist:win              # Windows installer -> release/
+pnpm run dist:mac              # macOS dmg + zip (arm64, x64); must run on a Mac
+pnpm test                      # all self-checks
+git tag v1.2.3 && git push --tags  # CI builds Windows + macOS and publishes a GitHub release
 ```
 
 Files: `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/main.cjs` (LAN server on :4242, portal window, PDF), `electron/boards.cjs` (LinkedIn/Indeed search), `src/ai.ts` (providers, model list, keywords, tailoring, cover letter), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates: standard, classic, modern, compact).
