@@ -19,7 +19,8 @@
     "appId": "app.autoresume",
     "productName": "AutoResume",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "resources"
     },
     "files": [
       "dist/**/*",
@@ -55,7 +56,7 @@
           ]
         }
       ],
-      "icon": "public/icon.icns",
+      "icon": "resources/icon.icns",
       "category": "public.app-category.productivity",
       "artifactName": "AutoResume-${version}-mac-${arch}.${ext}",
       "identity": "-",
