@@ -41,6 +41,11 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$app"
             codesign -dv "$app" 2>&1 | grep -E "Identifier|Signature|Format"
           done
+      - name: Check every installer was built
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then want="mac-arm64.dmg mac-x64.dmg mac-arm64.zip mac-x64.zip"; else want="win-x64.exe"; fi
+          for w in $want; do ls release/*"$w" || { echo "missing $w"; exit 1; }; done
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ runner.os }}
