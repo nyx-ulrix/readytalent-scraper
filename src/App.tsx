@@ -103,6 +103,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
   const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest">(mode === "applied" ? "applied" : "posted");
   const [hideExpired, setHideExpired] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [minPay, setMinPay] = useState("");
   const [payListed, setPayListed] = useState(false);
   const pay = Number(minPay) > 0 ? String(Number(minPay)) : payListed ? "shown" : "";
@@ -152,6 +153,11 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
     const want = s.skillsWant.includes(k), avoid = s.skillsAvoid.includes(k);
     return { ...s, skillsWant: want ? s.skillsWant.filter((x) => x !== k) : avoid ? s.skillsWant : [...s.skillsWant, k], skillsAvoid: want ? [...s.skillsAvoid, k] : s.skillsAvoid.filter((x) => x !== k) };
   });
+  /** Filters currently narrowing the list (shown on the collapsed panel's header). */
+  const activeFilters = [
+    origin, rt && type, rt && course, src, emp, work, lvl, company, pay, appliedFilter, onlySaved,
+    skillsWant.length + skillsAvoid.length > 0, !hideExpired,
+  ].filter(Boolean).length;
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = jobs.filter((j) => {
@@ -210,6 +216,12 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           ))}
           <div className="status">{status || `${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
           <input placeholder="Search title, company, location, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <details className="filters" open={filtersOpen} onToggle={(e) => setFiltersOpen((e.target as HTMLDetailsElement).open)}>
+          <summary>
+            <span>Filters &amp; sort{activeFilters ? ` (${activeFilters} active)` : ""}</span>
+            <span className="small muted">{shown.length} of {jobs.length}{origin ? ` · near ${near.place}` : ""}</span>
+          </summary>
+          <div className="filters-body">
           <div className="row near-row">
             <input placeholder="Near: postcode, street or MRT" value={nearDraft} onChange={(e) => setNearDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void locate(nearDraft); }} style={{ flex: 1, minWidth: 140 }} />
@@ -257,7 +269,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           )}
           <input placeholder="Company contains…" value={company} onChange={(e) => setCompany(e.target.value)} />
           <div className="row">
-            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} style={{ flex: 1 }}>
+            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} style={{ flex: "1 1 150px" }}>
               <option value="posted">Newest first</option>
               {origin && <option value="nearest">Nearest first</option>}
               <option value="deadline">Closing soonest</option>
@@ -266,18 +278,18 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
               <option value="company">Company A–Z</option>
               {mode === "applied" && <option value="applied">Recently applied</option>}
             </select>
-            {mode !== "applied" && <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ width: "auto" }}>
+            {mode !== "applied" && <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ flex: "1 1 130px", width: "auto" }}>
               <option value="">All ({Object.keys(state.applied || {}).length} applied)</option>
               <option value="open">Not applied</option>
               <option value="applied">Applied</option>
             </select>}
-            <input type="number" min={0} step={100} inputMode="numeric" placeholder="Min pay $/mo" value={minPay} onChange={(e) => setMinPay(e.target.value)} style={{ width: 118 }} title="Pay is compared per month (yearly ÷ 12, hourly × 173)" />
+            <input type="number" min={0} step={100} inputMode="numeric" placeholder="Min pay $/mo" value={minPay} onChange={(e) => setMinPay(e.target.value)} style={{ flex: "1 1 120px" }} title="Pay is compared per month (yearly ÷ 12, hourly × 173)" />
             <label className="small muted" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}><input type="checkbox" checked={payListed} onChange={(e) => setPayListed(e.target.checked)} style={{ width: "auto" }} />pay listed</label>
           </div>
           <div className="row">
             <label className="small muted" style={{ margin: 0, flex: 1 }}><input type="checkbox" checked={hideExpired} onChange={(e) => setHideExpired(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Hide delisted · {shown.length} of {jobs.length}</label>
             <button className="ghost" onClick={() => setShowSkills(!showSkills)}>Skills{skillsWant.length + skillsAvoid.length ? ` (${skillsWant.length + skillsAvoid.length})` : ""}</button>
-            {((rt && (type || course)) || src || emp || work || lvl || company || skillsWant.length || skillsAvoid.length || q || pay) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); }}>Clear</button> : null}
+            {(activeFilters || q) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); setAppliedFilter(""); setOnlySaved(false); setHideExpired(true); if (origin) { setNearDraft(""); void locate(""); } }}>Clear</button> : null}
           </div>
           {showSkills && (
             <div className="skills-panel">
@@ -297,6 +309,9 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
               <button className={`ghost ${onlySaved ? "on" : ""}`} onClick={() => setOnlySaved(!onlySaved)}>{onlySaved ? "♥ Saved" : "♡ Saved"}</button>
             </div>
           )}
+          </div>
+          </details>
+          {!filtersOpen && geoStatus && <div className="small muted">{geoStatus}</div>}
         </div>
         {shown.map((j) => (
           <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}`} onClick={() => setSel(j)}>
