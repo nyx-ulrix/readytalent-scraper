@@ -247,7 +247,7 @@ export function matchKeywords(keywords: string[], text: string) {
 }
 
 /** The profile JSON shape, spelled out for the model. */
-const PROFILE_SHAPE = `name, email, phone, location, links (all links joined with " · "), summary, skills (string[]: technical skills only), experience, projects, education (arrays of entries), awards (string[]: certifications and awards), sections (array of {title, entries} for any other section such as "Competition" or "Leadership & Co-Curricular Activities"), additional (string[] of labelled lines such as "Soft Skills: A | B" or "Interests: X, Y"). Every entry is {title, org, location, dates, details: string[]}; for education, title is the degree and org is the school (with faculty); for experience, title is the role and org is the company; for projects, title is the project name and org is the tech stack.`;
+const PROFILE_SHAPE = `name, email, phone, location, portfolio (personal website URL), linkedin (LinkedIn URL), github (GitHub profile URL), links (any other links joined with " · "), summary, skills (string[]: technical skills only), experience, projects, education (arrays of entries), awards (string[]: certifications and awards), sections (array of {title, entries} for any other section such as "Competition" or "Leadership & Co-Curricular Activities"), additional (string[] of labelled lines such as "Soft Skills: A | B" or "Interests: X, Y"). Every entry is {title, org, location, dates, details: string[]}; for education, title is the degree and org is the school (with faculty); for experience, title is the role and org is the company; for projects, title is the project name and org is the tech stack.`;
 
 const arrOr = <T,>(v: unknown, fb: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fb);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -317,7 +317,8 @@ export async function parseResume(cfg: AiConfig, file: File): Promise<Profile> {
   const strs = (v: unknown) => arrOr<unknown>(v, []).map(String).filter(Boolean);
   const entries = (v: unknown) => arrOr<Record<string, unknown>>(v, []).map((e) => ({ title: str(e.title), org: str(e.org), location: str(e.location), dates: str(e.dates), details: strs(e.details) }));
   return {
-    name: str(p.name), email: str(p.email), phone: str(p.phone), location: str(p.location), links: str(p.links), summary: str(p.summary),
+    name: str(p.name), email: str(p.email), phone: str(p.phone), location: str(p.location),
+    portfolio: str(p.portfolio), linkedin: str(p.linkedin), github: str(p.github), links: str(p.links), summary: str(p.summary),
     skills: strs(p.skills), experience: entries(p.experience), projects: entries(p.projects), education: entries(p.education), awards: strs(p.awards),
     sections: arrOr<Record<string, unknown>>(p.sections, []).map((s) => ({ title: str(s.title), entries: entries(s.entries) })).filter((s) => s.title),
     additional: strs(p.additional),

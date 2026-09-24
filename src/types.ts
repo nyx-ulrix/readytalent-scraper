@@ -12,7 +12,10 @@ export type Entry = { title: string; org: string; location?: string; dates: stri
 /** Extra resume sections beyond the built-in ones, e.g. "Competition", "Leadership & Co-Curricular Activities". */
 export type Section = { title: string; entries: Entry[] };
 export type Profile = {
-  name: string; email: string; phone: string; location: string; links: string; summary: string;
+  name: string; email: string; phone: string; location: string;
+  /** Header links, each its own field; `links` holds any other links (" · " separated). */
+  portfolio: string; linkedin: string; github: string; links: string;
+  summary: string;
   skills: string[]; experience: Entry[]; education: Entry[]; projects: Entry[]; awards: string[];
   sections: Section[];
   /** Labelled lines under the skills, e.g. "Soft Skills: Analytical Thinking | Communication". */
@@ -102,7 +105,7 @@ export const DEFAULT_META: Meta = {
   ],
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
-export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
+export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", portfolio: "", linkedin: "", github: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
 export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, knownSkills: [], omitSkills: [], warnTokens: true, interests: [], roleSuggestions: [], searchTerms: [], boardSearch: { location: "Singapore", linkedin: true, indeed: true, perTerm: 10, days: 14, jobTypes: [], workplace: [], levels: [], companyInclude: "", companyExclude: "" }, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
   [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");

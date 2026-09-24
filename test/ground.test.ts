@@ -5,7 +5,7 @@ import { toMarkdown } from "../src/markdown.ts";
 import type { Profile } from "../src/types.ts";
 
 const orig: Profile = {
-  name: "Jane Tan", email: "jane@example.com", phone: "+65 9000 0000", location: "Singapore", links: "", summary: "Engineer.",
+  name: "Jane Tan", email: "jane@example.com", phone: "+65 9000 0000", location: "Singapore", portfolio: "", linkedin: "", github: "", links: "", summary: "Engineer.",
   skills: ["Python", "React"],
   education: [{ title: "BEng Computer Engineering", org: "SIT", location: "Singapore", dates: "2025 – 2028", details: ["Systems design"] }],
   experience: [{ title: "Web Developer", org: "Mighty Velo", location: "Singapore", dates: "Jan 2024 – Feb 2025", details: ["Built a Webflow store for 60 products", "Ran Shopify"] }],

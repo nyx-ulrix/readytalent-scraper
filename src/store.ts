@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_META, defaultState, type Job, type Meta, type State } from "./types";
+import { DEFAULT_META, defaultState, type Job, type Meta, type Profile, type State } from "./types";
+import { splitLinks } from "./links";
 
 const KEY = "autoresume";
 const withTimeout = (p: Promise<Response>, ms: number) =>
@@ -13,6 +14,9 @@ async function load(): Promise<State> {
   } catch { /* offline from laptop: fall back to this device */ }
   if (!s) { try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch { /* ignore */ } }
   const merged: State = { ...defaultState, ...(s || {}), profile: { ...defaultState.profile, ...(s?.profile || {}) } };
+  // Older saved state kept all links in one string: sort them into the new fields once.
+  const sp = s?.profile as Partial<Profile> | undefined;
+  if (sp && sp.linkedin === undefined && sp.github === undefined && sp.portfolio === undefined && sp.links) merged.profile = { ...merged.profile, ...splitLinks(sp.links) };
   // One-time switch of older saved state to the new default template.
   if ((s?.defaultsVersion ?? 1) < 2) { merged.template = "standard"; merged.defaultsVersion = 2; }
   return merged;

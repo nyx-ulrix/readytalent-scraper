@@ -29,7 +29,7 @@ export function toMarkdown(p: Profile, placeholders = true): string {
   const parts = [
     MARKER,
     `# ${p.name || "Your Name"}`,
-    [`Email: ${p.email}`, `Phone: ${p.phone}`, `Location: ${p.location}`, `Links: ${p.links}`].join("\n"),
+    [`Email: ${p.email}`, `Phone: ${p.phone}`, `Location: ${p.location}`, `Portfolio: ${p.portfolio || ""}`, `LinkedIn: ${p.linkedin || ""}`, `GitHub: ${p.github || ""}`, `Links: ${p.links}`].join("\n"),
     `## Summary\n\n${p.summary}`,
     sectionMd(BUILT_IN.education, or(p.education)),
     sectionMd(BUILT_IN.experience, or(p.experience)),
@@ -44,12 +44,12 @@ export function toMarkdown(p: Profile, placeholders = true): string {
 /** Parse a file produced by toMarkdown (possibly hand-edited). Returns null if it is not in the template format. */
 export function fromMarkdown(md: string): Profile | null {
   if (!md.trimStart().startsWith(MARKER)) return null;
-  const p: Profile = { name: "", email: "", phone: "", location: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
+  const p: Profile = { name: "", email: "", phone: "", location: "", portfolio: "", linkedin: "", github: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
   let section = "";
   let entries: Entry[] | null = null;
   let entry: Entry | null = null;
   const summary: string[] = [];
-  const kv = (line: string) => line.match(/^(Email|Phone|Location|Links|Org|Dates):\s*(.*)$/i);
+  const kv = (line: string) => line.match(/^(Email|Phone|Location|Portfolio|LinkedIn|GitHub|Links|Org|Dates):\s*(.*)$/i);
 
   for (const raw of md.split(/\r?\n/)) {
     const line = raw.trim();
@@ -68,7 +68,7 @@ export function fromMarkdown(md: string): Profile | null {
     }
     const key = section.toLowerCase();
     if (!section) {
-      if ((m = kv(line))) { const k = m[1].toLowerCase() as "email" | "phone" | "location" | "links"; if (k in p) p[k] = m[2].trim(); }
+      if ((m = kv(line))) { const k = m[1].toLowerCase() as "email" | "phone" | "location" | "portfolio" | "linkedin" | "github" | "links"; if (k in p) p[k] = m[2].trim(); }
       continue;
     }
     if (key === "summary" || key === "profile") { summary.push(line); continue; }

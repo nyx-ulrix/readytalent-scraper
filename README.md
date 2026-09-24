@@ -21,6 +21,8 @@ Install `release/AutoResume-Setup-*.exe` (or `pnpm install && pnpm start` to run
 
 **Search tab (LinkedIn and Indeed).** Add the roles you want (each becomes a search term) or type your own terms, e.g. "project manager, technical sales". Optionally ask the AI to suggest roles or write more terms. Set employment type, working mode (on-site, remote, hybrid), experience level, companies to include or skip, location, results per term and posting age. Nothing is fetched until you press Search, and only ticked terms are searched. Results are stored locally; LinkedIn jobs include the full description, Indeed jobs the summary, pay and tags its search page shows (Indeed keeps full descriptions behind a human check). Results can be filtered by source, job type, working mode, level, company and pay (compared per month).
 
+**Editing and links.** Settings has separate Portfolio, LinkedIn and GitHub fields (plus optional other links); the header shows phone, email, portfolio, LinkedIn and GitHub. On the Resume tab, **Edit** / **Edit this version** changes a tailored resume directly, with no AI and no regenerating; cover letters are edited in the text box above the preview. Every email, phone number, website and URL on the resume and cover letter is a real link, so it stays clickable in the saved PDF.
+
 **Your skill choices.** On a job's ATS keywords, click once for "I have this" (tailoring adds it when the job asks for it) or twice for "leave out" (removed from every tailored resume).
 
 **AI only on click.** Every AI action is marked ✦ and asks for confirmation first, naming the provider and model and warning that it consumes API tokens. The warning can be turned off in Settings.
@@ -42,6 +44,7 @@ node test/markdown.test.ts     # Markdown template round-trip self-check (Node 2
 node test/ground.test.ts       # grounding guard: AI output may only state facts from your resume/notes
 node test/boards.test.cjs      # LinkedIn/Indeed filter rules
 node test/pay.test.ts          # pay normalisation (yearly/hourly -> monthly)
+node test/linkify.test.ts      # clickable-link detection and link fields
 pnpm dist                      # Windows installer -> release/
 ```
 

@@ -5,7 +5,7 @@ import type { Profile } from "../src/types.ts";
 
 const p: Profile = {
   name: "Jane Tan", email: "jane@example.com", phone: "+65 9000 0000", location: "Singapore",
-  links: "https://linkedin.com/in/jane · https://github.com/jane", summary: "Engineer who ships.",
+  portfolio: "janetan.dev", linkedin: "https://linkedin.com/in/jane", github: "https://github.com/jane", links: "https://jane.substack.com", summary: "Engineer who ships.",
   skills: ["Python", "React", "C#"],
   education: [{ title: "Bachelor's Degree in Computer Engineering", org: "Singapore Institute of Technology | Engineering", location: "Singapore", dates: "Sept 2025 – Sept 2028", details: ["Systems design"] }],
   experience: [{ title: "Web Developer", org: "Mighty Velo", location: "Singapore", dates: "Jan 2024 – Feb 2025", details: ["Built a store: Webflow", "Ran Shopify"] }],

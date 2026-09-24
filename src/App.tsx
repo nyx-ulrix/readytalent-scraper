@@ -543,9 +543,14 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
   }, []);
   const label = (id: string) => { const j = jobs.find((x) => x.id === id); return j ? `${j.title} — ${j.company}` : id; };
   // The header always comes from your current details, so every tailored version (old or new) shows them.
-  const { name, email, phone, location, links } = state.profile;
+  const { name, email, phone, location, portfolio, linkedin, github, links } = state.profile;
   const tailoredVersion = doc.kind === "resume" && doc.jobId ? state.tailored[doc.jobId] : undefined;
-  const profile = tailoredVersion ? { ...tailoredVersion, name, email, phone, location, links } : state.profile;
+  const profile = tailoredVersion ? { ...tailoredVersion, name, email, phone, location, portfolio, linkedin, github, links } : state.profile;
+  const [editing, setEditing] = useState(false);
+  /** Edits go straight into the version being viewed: the tailored copy, or your base details. */
+  const editVersion = (patch: Partial<Profile>) => update((s) => (tailoredVersion
+    ? { ...s, tailored: { ...s.tailored, [doc.jobId]: { ...s.tailored[doc.jobId], ...patch } }, generatedAt: { ...(s.generatedAt || {}), [`edited:${doc.jobId}`]: new Date().toISOString() } }
+    : { ...s, profile: { ...s.profile, ...patch } }));
   const letter = doc.kind === "letter" ? state.covers[doc.jobId] || "" : "";
   const fileName = `${state.profile.name || "resume"} - ${doc.kind === "letter" ? "cover letter" : "resume"}${doc.jobId ? " - " + label(doc.jobId).replace(/[\\/:*?"<>|]/g, "") : ""}`;
   const value = `${doc.kind}:${doc.jobId}`;
@@ -566,12 +571,19 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
         {isDesktop()
           ? <button onClick={() => window.desktop!.savePdf(fileName)}>Save PDF (A4)</button>
           : <button onClick={() => window.print()}>Print / Save PDF (A4)</button>}
+        {doc.kind === "resume" && <button className={editing ? "" : "ghost"} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : tailoredVersion ? "Edit this version" : "Edit"}</button>}
         {doc.jobId && doc.kind === "resume" && <button className="ghost" onClick={() => { const t = { ...state.tailored }; delete t[doc.jobId]; update({ tailored: t }); setDoc({ kind: "resume", jobId: "" }); }}>Delete this version</button>}
         <span className="small muted">{Math.round(zoom * 100)}%</span>
       </div>
       {doc.kind === "letter" && (
         <div className="app-chrome" style={{ padding: "8px 16px", borderBottom: "1px solid var(--line)" }}>
           <textarea value={letter} rows={6} onChange={(e) => update((s) => ({ ...s, covers: { ...s.covers, [doc.jobId]: e.target.value } }))} placeholder="Cover letter text (editable)" />
+        </div>
+      )}
+      {editing && doc.kind === "resume" && (
+        <div className="resume-editor app-chrome">
+          <div className="small muted">{tailoredVersion ? "Editing only this tailored version; changes save as you type and the preview updates live. No AI is used." : "Editing your base details (same as Settings)."} Header details come from Settings.</div>
+          <ProfileBody p={profile} setP={editVersion} />
         </div>
       )}
       <div className="preview" ref={ref}>
@@ -663,31 +675,16 @@ function Settings({ state, update }: { state: State; update: Update }) {
         {field("phone", "Phone")}
         {field("location", "Location", "Singapore")}
       </div>
-      {field("links", "Links", "linkedin.com/in/you · github.com/you · portfolio")}
-      <label>Summary</label>
-      <textarea value={p.summary} onChange={(e) => setP({ summary: e.target.value })} placeholder="2-3 lines about you. Gemini rewrites this per job." />
-      <label>Skills (comma separated)</label>
-      <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()) })} onBlur={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
-
-      <EntryList title="Experience" items={p.experience} onChange={(experience) => setP({ experience })} />
-      <EntryList title="Projects" items={p.projects} onChange={(projects) => setP({ projects })} />
-      <EntryList title="Education" items={p.education} onChange={(education) => setP({ education })} />
-      {(p.sections || []).map((sec, si) => (
-        <div key={si}>
-          <div className="row" style={{ marginTop: 26 }}>
-            <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
-            <button className="ghost" onClick={() => setP({ sections: p.sections.filter((_, j) => j !== si) })}>Remove section</button>
-          </div>
-          <EntryList title={sec.title || "Entries"} items={sec.entries} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
-        </div>
-      ))}
-      <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
-      <label>Awards & certifications (one per line)</label>
-      <textarea value={p.awards.join("\n")} onChange={(e) => setP({ awards: e.target.value.split("\n") })} onBlur={(e) => setP({ awards: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
+      <div className="grid2">
+        {field("portfolio", "Portfolio / website", "https://yourname.com")}
+        {field("linkedin", "LinkedIn", "https://www.linkedin.com/in/you/")}
+        {field("github", "GitHub", "https://github.com/you")}
+        {field("links", "Other links (optional)", "e.g. https://yourblog.com · https://dribbble.com/you")}
+      </div>
+      <div className="small muted">The resume header shows phone • email • portfolio • LinkedIn • GitHub, all clickable in the PDF.</div>
+      <ProfileBody p={p} setP={setP} />
       <label>More about you, for the AI only (languages such as Mandarin / Chinese, soft skills, achievements). Resumes and letters may only state facts from your resume and this box.</label>
       <textarea value={state.about || ""} rows={4} placeholder={"e.g. Fluent in English and Mandarin (Chinese). Strong at teamwork, communication and problem solving."} onChange={(e) => update({ about: e.target.value })} />
-      <label>Other skill lines, one per line (e.g. "Soft Skills: Analytical Thinking | Communication", "Interests: Data Analytics")</label>
-      <textarea value={(p.additional || []).join("\n")} onChange={(e) => setP({ additional: e.target.value.split("\n") })} onBlur={(e) => setP({ additional: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
 
       {isDesktop() && (
         <>
@@ -818,6 +815,36 @@ function ModelPicker({ state, update }: { state: State; update: Update }) {
           </table>
         </details>
       )}
+    </>
+  );
+}
+
+/** Resume content editor (summary, skills, entries, sections, awards, skill lines). Used for your details and for editing any tailored version. */
+function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) => void }) {
+  return (
+    <>
+      <label>Summary</label>
+      <textarea value={p.summary} onChange={(e) => setP({ summary: e.target.value })} placeholder="2-3 lines about you. The AI can rewrite this per job." />
+      <label>Skills (comma separated)</label>
+      <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()) })} onBlur={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+
+      <EntryList title="Experience" items={p.experience} onChange={(experience) => setP({ experience })} />
+      <EntryList title="Projects" items={p.projects} onChange={(projects) => setP({ projects })} />
+      <EntryList title="Education" items={p.education} onChange={(education) => setP({ education })} />
+      {(p.sections || []).map((sec, si) => (
+        <div key={si}>
+          <div className="row" style={{ marginTop: 26 }}>
+            <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
+            <button className="ghost" onClick={() => setP({ sections: p.sections.filter((_, j) => j !== si) })}>Remove section</button>
+          </div>
+          <EntryList title={sec.title || "Entries"} items={sec.entries} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
+        </div>
+      ))}
+      <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
+      <label>Awards & certifications (one per line)</label>
+      <textarea value={p.awards.join("\n")} onChange={(e) => setP({ awards: e.target.value.split("\n") })} onBlur={(e) => setP({ awards: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
+      <label>Other skill lines, one per line (e.g. "Soft Skills: Analytical Thinking | Communication", "Interests: Data Analytics")</label>
+      <textarea value={(p.additional || []).join("\n")} onChange={(e) => setP({ additional: e.target.value.split("\n") })} onBlur={(e) => setP({ additional: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
     </>
   );
 }
