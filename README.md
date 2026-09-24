@@ -1,58 +1,95 @@
 # AutoResume
 
-Scrapes every job from SIT's ReadyTalent portal (and, when you ask, LinkedIn and Indeed) and turns your details into tailored, ATS-optimised A4 resumes and cover letters with Gemini, OpenAI, Qwen or Claude. Everything is stored locally. Runs on Windows and macOS.
+AutoResume pulls job listings from SIT's ReadyTalent portal, and from LinkedIn and Indeed when you ask. It turns your details into tailored, ATS-optimised A4 resumes and cover letters using Gemini, OpenAI, Qwen or Claude. Everything stays on your own computer. Runs on Windows and macOS.
 
-**Download:** [latest release](https://github.com/nyx-ulrix/readytalent-scraper/releases/latest) (Windows installer, macOS for Apple Silicon and Intel).
+## Download
 
-## Laptop (Windows or Mac)
+Get the latest version from the [releases page](https://github.com/nyx-ulrix/readytalent-scraper/releases/latest).
 
-- **Windows:** run `AutoResume-Setup-<version>-win-x64.exe`. If SmartScreen warns about an unknown publisher, choose More info → Run anyway.
-- **macOS:** open the `.dmg` for your Mac (`arm64` = Apple Silicon, `x64` = Intel) and drag AutoResume to Applications. The app isn't notarised, so right-click it → Open the first time; if macOS says it is damaged, run `xattr -dr com.apple.quarantine /Applications/AutoResume.app` once.
-- From source: `pnpm install && pnpm start`.
+| Your computer | File |
+| --- | --- |
+| Windows 10/11 | `AutoResume-Setup-<version>-win-x64.exe` |
+| Mac with an Apple chip (M1 or later) | `AutoResume-<version>-mac-arm64.dmg` |
+| Mac with an Intel processor | `AutoResume-<version>-mac-x64.dmg` |
 
-1. **Settings** → paste your Gemini API key (free at aistudio.google.com/apikey), save your ReadyTalent sign-in (SIT username + password, encrypted with Windows DPAPI in `%APPDATA%\autoresume\creds.bin`, never sent to the tablet) and fill in your details.
-2. **Jobs → Scrape ReadyTalent**. The app opens the portal in a hidden in-memory window, signs in through SIT's ADFS page with your saved login (fresh session every launch), calls the portal's own job API and saves to `%APPDATA%\autoresume\jobs.json`. Re-scraping only fetches new jobs. If sign-in needs your attention (wrong password, MFA), the window is shown so you can finish it, then click Scrape again. **Open portal** shows the window at any time.
-3. Filter with the **Employment Types** and **Programmes** dropdowns, copied from the portal's own search page during scraping.
-4. Open a job → **ATS keywords** / **Tailor resume** / **Cover letter**. You stay on the job; open results with **View resume** / **View letter**, then **Save PDF (A4)**.
+Not sure which Mac you have? Click the Apple menu () → **About This Mac**. "Chip: Apple M…" means the arm64 file; "Processor: Intel" means the x64 file. The `.zip` files contain the same Mac apps for anyone who prefers them over a disk image.
 
-**Resume import and templates.** Settings → **Upload resume** accepts PDF, images and Markdown (`.md`); the chosen AI provider reads and OCRs them. **Download .md template** exports your details in AutoResume's Markdown format; edit it in any text editor and upload it back, and it imports exactly with no AI key. The default A4 template is **Standard** (Times New Roman, ruled section headings, location and dates on the right); Classic, Modern and Compact are also available. Besides Education, Work Experience and Projects you can add any number of custom sections (Competition, Leadership…) and labelled skill lines (Soft Skills, Interests…).
+## Install on Windows
 
-**Grounded AI.** Keywords, tailored resumes and cover letters get your resume as Markdown plus the "More about you" notes in Settings (languages such as Mandarin, soft skills...). The AI works soft skills and languages into ATS keywords and bullets where your text supports them. Each result then goes through a fact-check pass and a deterministic guard. The guard keeps employers, schools, titles, locations and dates unchanged and reverts any bullet that introduces a number you never wrote. It also drops skills or labelled items that don't appear in your text.
+1. Run the installer.
+2. If a blue "Windows protected your PC" box appears, click **More info** → **Run anyway**. It appears because the app is not signed by a paid publisher.
+3. If Windows Firewall asks, allow AutoResume if you want to use it from a tablet.
 
-**Models.** Settings → AI lists every model your key can see, grouped into text models and other models, with list prices per 1M tokens (from OpenRouter's public price list) and an on-demand online check. OpenAI Responses-only models (Codex, "-pro") are routed to the Responses API automatically.
+## Install on macOS
 
-**Tabs.** ReadyTalent (portal jobs), Search (LinkedIn and Indeed), Saved, Applied, Resume and Settings. "Mark applied" records the date; Saved and Applied gather jobs from every source. Tailoring and cover letters stay on the job page and show when they were made; open them with View resume / View letter.
+1. Open the downloaded `.dmg` and drag **AutoResume** into **Applications**, then eject the disk image.
+2. Open Applications and double-click AutoResume.
+3. The app is not notarised by Apple, so macOS blocks the first launch. It is safe to allow:
+   - **macOS 15 Sequoia or newer:** close the warning, go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to AutoResume, then confirm with your password or Touch ID.
+   - **Older macOS:** right-click AutoResume in Applications → **Open** → **Open**.
+   - **If it says the app "is damaged and can't be opened":** open Terminal (Cmd + Space, type Terminal), paste this line, press Return, then open the app normally:
 
-**Search tab (LinkedIn and Indeed).** Add the roles you want (each becomes a search term) or type your own terms, e.g. "project manager, technical sales". Optionally ask the AI to suggest roles or write more terms. Set employment type, working mode (on-site, remote, hybrid), experience level, companies to include or skip, location, results per term and posting age. Nothing is fetched until you press Search, and only ticked terms are searched. Results are stored locally; LinkedIn jobs include the full description, Indeed jobs the summary, pay and tags its search page shows (Indeed keeps full descriptions behind a human check). Results can be filtered by source, job type, working mode, level, company and pay (compared per month).
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/AutoResume.app
+     ```
 
-**Editing and links.** Settings has separate Portfolio, LinkedIn and GitHub fields (plus optional other links); the header shows phone, email, portfolio, LinkedIn and GitHub. On the Resume tab, **Edit** / **Edit this version** changes a tailored resume directly, with no AI and no regenerating; cover letters are edited in the text box above the preview. Every email, phone number, website and URL on the resume and cover letter is a real link, so it stays clickable in the saved PDF.
+4. If macOS asks whether AutoResume may accept incoming network connections, click **Allow** if you want to use it from a tablet. Otherwise either choice is fine.
 
-**Your skill choices.** On a job's ATS keywords, click once for "I have this" (tailoring adds it when the job asks for it) or twice for "leave out" (removed from every tailored resume).
+On a Mac, closing the window does not quit AutoResume, so a tablet can still connect. Click its Dock icon to reopen it, or press Cmd + Q to quit.
 
-**AI only on click.** Every AI action is marked ✦ and asks for confirmation first, naming the provider and model and warning that it consumes API tokens. The warning can be turned off in Settings.
+## First-time setup (Settings tab)
 
-Windows Firewall or macOS will ask to allow incoming connections on the first launch; allow it so the tablet can connect. On a Mac, closing the window keeps AutoResume running; click its Dock icon to reopen it.
+1. **AI key.** Choose a provider and paste its API key. Gemini has a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey); OpenAI, Qwen and Claude also work. You can pick the exact model, and the list shows each model's price per million tokens.
+2. **ReadyTalent sign-in.** Enter your SIT email and password once. They are encrypted on your computer (Windows account protection or the Mac Keychain) and used only to sign in to ReadyTalent for you. On a Mac, click **Always Allow** if it asks about the Keychain.
+3. **Your details.** Upload your current resume (PDF, photo or `.md`) or type everything in, then check the fields. Fill in Portfolio, LinkedIn and GitHub separately.
+4. **More about you.** Add facts the AI may use that are not on your resume, such as "Fluent in English and Mandarin". The AI may only use facts from your resume and this box.
+5. **Job preferences.** Pick your employment type and programme so the ReadyTalent list shows jobs relevant to you.
 
-## Tablet (Android / iPad)
+## Using it
 
-Keep the laptop app running on the same Wi-Fi. Settings shows the laptop's address (for example `http://192.168.1.20:4242`). Open it in the tablet browser and use **Add to Home Screen**. The tablet sees the scraped jobs, shares your details with the laptop, and can generate resumes and cover letters itself. Use **Print / Save PDF** for A4 output. Scraping stays on the laptop.
+- **ReadyTalent tab:** press **Scrape ReadyTalent**. It signs in and saves every job with title, company, pay, skills needed and description. Filter by type, programme, pay and skills.
+- **Search tab:** add the roles you want or type terms like "project manager, technical sales", set filters (job type, remote/hybrid, experience level, companies, pay) and press **Search**. Nothing is fetched until you press Search.
+- **On any job:**
+  - ✦ **ATS keywords** lists what the job asks for. Tap a keyword once for "I have this" or twice for "leave out".
+  - ✦ **Tailor resume** and ✦ **Cover letter** write versions for that job; you stay on the job page.
+  - Anything marked ✦ uses the AI. It asks first because it uses API tokens, which may cost money on paid keys.
+- **Resume tab:** pick a version and a template (Standard is the default), press **Edit** to change wording by hand without regenerating, then **Save PDF (A4)**. Links in the PDF are clickable.
+- **Save** and **Mark applied** keep track of jobs in the **Saved** and **Applied** tabs.
 
-## Dev
+## Use it from a tablet (optional)
+
+Keep AutoResume open on your laptop with the tablet on the same Wi-Fi. Settings shows an address like `http://192.168.1.20:4242`; open it in the tablet's browser and use **Add to Home Screen** (Safari: Share → Add to Home Screen). The tablet shares your details and jobs with the laptop and can generate resumes and cover letters; use **Print / Save PDF** for A4 output. Scraping and searching only run on the laptop.
+
+Your data stays on your devices. Only the text you choose to send to your AI provider leaves them.
+
+## How it works
+
+**ReadyTalent.** The app opens the portal in a hidden, in-memory window (a fresh session every launch), signs in through SIT's ADFS page with your saved login, calls the portal's own job API and saves the jobs in the app's data folder. Re-scraping only fetches new jobs. If sign-in needs you (wrong password, MFA), the window is shown so you can finish, then press Scrape again. The Employment Types and Programmes filters are copied from the portal's own search page.
+
+**LinkedIn and Indeed.** Only ticked search terms are searched, and only when you press Search, in a hidden browser window with pauses between pages. LinkedIn jobs include the full description; Indeed jobs include the summary, pay and tags from its search page, because Indeed keeps full descriptions behind a human-verification check. Results can be filtered by source, job type, working mode, level, company and pay (compared per month, so yearly and hourly pay line up).
+
+**Resume import and templates.** Upload accepts PDF, images and Markdown; the chosen AI provider reads and OCRs them. **Download .md template** exports your details in AutoResume's Markdown format, which re-imports exactly with no AI key. Templates: Standard (Times New Roman, ruled headings, location and dates on the right), Classic, Modern and Compact. You can add custom sections (Competition, Leadership…) and labelled skill lines (Soft Skills, Interests…).
+
+**Grounded AI.** Keywords, tailored resumes and cover letters get your resume as Markdown plus your "More about you" notes. The AI works soft skills and languages into keywords and bullets where your text supports them. Every result then goes through a fact-check pass and a fixed rule check: employers, schools, titles, locations and dates stay as you wrote them, bullets that add numbers you never wrote are undone, and skills or items that do not appear in your text are dropped.
+
+**Models.** Settings lists every model your key can see, split into text models and others, with list prices per 1M tokens (from OpenRouter's public price list) and an on-demand online check. OpenAI models that only work on the Responses API (Codex, "-pro") are routed there automatically.
+
+**Editing and links.** The resume header always uses your current phone, email, portfolio, LinkedIn and GitHub, even on older tailored versions. Every email, phone number, website and URL on resumes and cover letters is a real link, so it stays clickable in the PDF.
+
+**AI only on click.** Nothing calls the AI automatically. Every AI action is marked ✦ and asks for confirmation, naming the provider and model and warning that it consumes tokens. The warning can be turned off in Settings.
+
+## Development
 
 ```bash
 pnpm install
+pnpm start                     # build + run the desktop app
 pnpm dev                       # browser-only UI on :5173 (proxies /api to a running desktop app)
-pnpm start                     # build + run Electron
-node electron/scrape.test.cjs  # scraper self-check against a fake portal API
-node test/markdown.test.ts     # Markdown template round-trip self-check (Node 22.6+)
-node test/ground.test.ts       # grounding guard: AI output may only state facts from your resume/notes
-node test/boards.test.cjs      # LinkedIn/Indeed filter rules
-node test/pay.test.ts          # pay normalisation (yearly/hourly -> monthly)
-node test/linkify.test.ts      # clickable-link detection and link fields
+pnpm test                      # all self-checks
 pnpm run dist:win              # Windows installer -> release/
 pnpm run dist:mac              # macOS dmg + zip (arm64, x64); must run on a Mac
-pnpm test                      # all self-checks
 git tag v1.2.3 && git push --tags  # CI builds Windows + macOS and publishes a GitHub release
 ```
 
-Files: `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/main.cjs` (LAN server on :4242, portal window, PDF), `electron/boards.cjs` (LinkedIn/Indeed search), `src/ai.ts` (providers, model list, keywords, tailoring, cover letter), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates: standard, classic, modern, compact).
+Self-checks: `electron/scrape.test.cjs` (ReadyTalent scraper against a fake portal API), `test/ground.test.ts` (grounding guard), `test/markdown.test.ts` (Markdown template round trip), `test/boards.test.cjs` (LinkedIn/Indeed filters), `test/pay.test.ts` (pay normalisation), `test/linkify.test.ts` (clickable links and link fields). The `.ts` tests need Node 22.6 or newer.
+
+Files: `electron/main.cjs` (LAN server on :4242, ReadyTalent window, PDF), `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/boards.cjs` (LinkedIn/Indeed search), `src/ai.ts` (providers, models, keywords, tailoring, cover letters), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates), `.github/workflows/release.yml` (release builds).

@@ -17,14 +17,14 @@ Run the installer. Windows SmartScreen may say the publisher is unknown, because
 ## Installing on macOS
 
 1. Open the `.dmg` and drag **AutoResume** into **Applications**.
-2. The app is not notarised by Apple, so the first launch needs one extra step. Right-click AutoResume in Applications, choose **Open**, then **Open** again.
+2. The app is not notarised by Apple, so macOS blocks the first launch. On **macOS 15 Sequoia or newer**, close the warning, go to **System Settings → Privacy & Security**, and click **Open Anyway** next to AutoResume. On older macOS, right-click AutoResume in Applications, choose **Open**, then **Open** again.
 3. If macOS says the app "is damaged" or "can't be opened", run this once in Terminal, then open it normally:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
-Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows.
+Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
 
 ## What's in 1.0.0
 
