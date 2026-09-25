@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, useAppState } from "./store";
+import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, scrapePosting, useAppState } from "./store";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
 import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
@@ -910,50 +910,76 @@ function ModelPicker({ state, update }: { state: State; update: Update }) {
   );
 }
 
-/** Paste a job posting (its text, or a link on the laptop app) to keep it with your jobs and tailor for it. */
+/** A lone pasted link (not a posting's text). */
+const LINK = /^https?:\/\/\S+$/i;
+
+/**
+ * Paste a job posting to keep it with your jobs and tailor for it. A link is read and saved straight away
+ * (no AI); pasted text can be read with the AI or saved as it is with a title you type.
+ */
 function PastePosting({ state, update, onAdded }: { state: State; update: Update; onAdded: (j: Job) => void }) {
   const [text, setText] = useState("");
-  const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [company, setCompany] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
-  const add = (job: Partial<Job>, body: string) => {
+  const [note, setNote] = useState("");
+  /** Save (a link read twice replaces its earlier copy) and open it. */
+  const save = (j: Job) => {
+    update((s) => ({ ...s, pasted: [j, ...(s.pasted || []).filter((x) => x.id !== j.id)] }));
+    setText(""); setTitle(""); setCompany(""); setErr("");
+    onAdded(j);
+  };
+  const fromText = (job: Partial<Job>, body: string) => {
     const j: Job = {
       id: `pasted-${Date.now()}`, title: "", company: "", type: "", salary: "", location: "", skills: [], description: body.trim(), requirements: "",
       deadline: "", posted: new Date().toISOString().slice(0, 10), vacancies: "", website: "", companyProfile: "", active: true,
-      scrapedAt: new Date().toISOString(), source: "pasted", url: url.trim() || undefined, ...job,
+      scrapedAt: new Date().toISOString(), source: "pasted", ...job,
     };
     j.title = title.trim() || j.title || "Pasted job"; j.company = company.trim() || j.company;
     j.type = j.employment || "";
-    update((s) => ({ ...s, pasted: [j, ...(s.pasted || [])] }));
-    setText(""); setUrl(""); setTitle(""); setCompany(""); setErr("");
-    onAdded(j);
+    save(j);
+    setNote(`Saved "${j.title}".`);
   };
-  const withAi = async () => {
-    setErr("");
+  const fromLink = async (link: string) => {
+    setErr(""); setNote(""); setBusy("Reading the link…");
     try {
-      let body = text;
-      if (!body.trim() && url.trim()) { setBusy("Reading the page…"); body = await window.desktop!.pageText(url.trim()); }
-      if (!body.trim()) throw new Error("Paste the posting's text (or its link on the laptop app).");
-      setBusy("Reading the posting…");
-      add(await readPosting(aiCfg(state), body), body);
+      const j = await scrapePosting(link);
+      save(j);
+      setNote(`Saved "${j.title}"${j.company ? ` at ${j.company}` : ""}.`);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
   };
+  const withAi = async () => {
+    setErr(""); setNote(""); setBusy("Reading the posting…");
+    try { fromText(await readPosting(aiCfg(state), text), text); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
+  const isLink = LINK.test(text.trim());
   return (
     <details className="search-panel app-chrome">
       <summary>Paste a job posting <span className="small muted" style={{ fontWeight: 400 }}>· from any site{(state.pasted || []).length ? ` · ${(state.pasted || []).length} pasted` : ""}</span></summary>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the whole job posting here (title, company, description, requirements…)" />
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={isDesktop() ? "Link to the posting (optional; with no text pasted, ✦ reads the page)" : "Link to the posting (optional)"} />
-        <div className="row">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Job title (the AI fills this if blank)" style={{ flex: 1 }} />
-          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" style={{ flex: 1 }} />
-        </div>
-        <div className="row">
-          <button disabled={!!busy || (!text.trim() && !(isDesktop() && url.trim()))} title="Uses AI tokens" onClick={() => { if (aiConfirm(state, "Read this job posting with the AI (title, company, pay, skills…)?")) void withAi(); }}>✦ {busy || "Add with AI"}</button>
-          <button className="ghost" disabled={!!busy || !text.trim() || !title.trim()} title="Needs a job title; no AI is used" onClick={() => add({}, text)}>Add without AI</button>
-        </div>
+        <textarea rows={5} value={text} disabled={!!busy} placeholder="Paste a link to a job posting (saved straight away, no AI), or the posting's whole text"
+          onChange={(e) => { setText(e.target.value); setNote(""); }}
+          onPaste={(e) => { const t = e.clipboardData.getData("text").trim(); if (LINK.test(t) && !text.trim()) { e.preventDefault(); setText(t); void fromLink(t); } }} />
+        {isLink ? (
+          <div className="row">
+            <button className="ghost" disabled={!!busy} onClick={() => void fromLink(text.trim())}>{busy || "Read link again"}</button>
+          </div>
+        ) : text.trim() ? (
+          <>
+            <div className="row">
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Job title (the AI fills this if blank)" style={{ flex: 1 }} />
+              <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" style={{ flex: 1 }} />
+            </div>
+            <div className="row">
+              <button disabled={!!busy} title="Uses AI tokens" onClick={() => { if (aiConfirm(state, "Read this job posting with the AI (title, company, pay, skills…)?")) void withAi(); }}>✦ {busy || "Add with AI"}</button>
+              <button className="ghost" disabled={!!busy || !title.trim()} title="Needs a job title; no AI is used" onClick={() => fromText({}, text)}>Add without AI</button>
+            </div>
+          </>
+        ) : null}
+        {busy && <div className="status">{busy}</div>}
+        {note && <div className="status" style={{ color: "var(--ok)" }}>{note}</div>}
         {err && <div className="status err">{err}</div>}
       </div>
     </details>

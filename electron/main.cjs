@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
-const { searchBoards, stopBoards, showBoardWindow, pageText } = require("./boards.cjs");
+const { searchBoards, stopBoards, showBoardWindow, scrapePosting } = require("./boards.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -52,6 +52,15 @@ function serve() {
             const { queries = [], region = "" } = JSON.parse(body || "{}");
             json(res, { results: await geocodeMany(queries.slice(0, 25).map(String), String(region)) });
           } catch (e) { json(res, { error: String(e.message || e) }, 400); }
+        });
+        return;
+      }
+      if (url.pathname === "/api/posting" && req.method === "POST") {
+        let body = "";
+        req.on("data", (c) => { body += c; if (body.length > 1e4) req.destroy(); });
+        req.on("end", async () => {
+          try { json(res, { job: await scrapePosting(JSON.parse(body || "{}").url, skillDictionary()) }); }
+          catch (e) { json(res, { error: String(e.message || e) }, 400); }
         });
         return;
       }
@@ -226,6 +235,14 @@ ipcMain.handle("rt:scrape", async (e) => {
   }
 });
 
+/** Skill names to look for in board / pasted postings: ReadyTalent skill names + the user's own skills. */
+function skillDictionary() {
+  const dict = new Set();
+  for (const j of readJson("jobs.json", [])) for (const s of j.skills || []) if (s.length >= 2 && s.length <= 40) dict.add(s.trim());
+  for (const s of readJson("state.json", {})?.profile?.skills || []) if (s && s.length <= 40) dict.add(s.trim());
+  return [...dict];
+}
+
 /* ---- LinkedIn / Indeed: runs only when the user presses Search ---- */
 const pick = (v, allowed) => (Array.isArray(v) ? v.filter((x) => allowed.includes(x)) : []);
 let boardsBusy = false;
@@ -238,10 +255,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
   try {
     const stored = readJson("board-jobs.json", []);
     const known = new Map(stored.map((j) => [j.id, j]));
-    // Skill dictionary for "skills needed": ReadyTalent skill names + the user's own skills.
-    const dict = new Set();
-    for (const j of readJson("jobs.json", [])) for (const s of j.skills || []) if (s.length >= 2 && s.length <= 40) dict.add(s.trim());
-    for (const s of readJson("state.json", {})?.profile?.skills || []) if (s && s.length <= 40) dict.add(s.trim());
+    const dict = skillDictionary();
     const say = (msg) => e.sender.send("boards:progress", { msg });
     const clean = {
       terms, location: String(opts.location || "Singapore").trim() || "Singapore", linkedin: !!opts.linkedin, indeed: !!opts.indeed,
@@ -251,7 +265,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
       levels: pick(opts.levels, ["internship", "entry", "associate", "mid", "director", "executive"]),
       companyInclude: String(opts.companyInclude || "").slice(0, 500), companyExclude: String(opts.companyExclude || "").slice(0, 500),
     };
-    const { jobs, errors } = await searchBoards(clean, known, [...dict], say);
+    const { jobs, errors } = await searchBoards(clean, known, dict, say);
     let added = 0;
     for (const [id, j] of jobs) { if (!known.has(id)) added++; known.set(id, j); }
     const merged = [...known.values()].sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
@@ -260,7 +274,6 @@ ipcMain.handle("boards:search", async (e, opts) => {
   } finally { boardsBusy = false; }
 });
 ipcMain.handle("boards:stop", () => { stopBoards(); });
-ipcMain.handle("page:text", (_e, url) => pageText(String(url || "").trim()));
 ipcMain.handle("boards:window", () => { showBoardWindow(); });
 ipcMain.handle("boards:remove", (_e, ids) => {
   const keep = ids === "all" ? [] : readJson("board-jobs.json", []).filter((j) => !(ids || []).includes(j.id));

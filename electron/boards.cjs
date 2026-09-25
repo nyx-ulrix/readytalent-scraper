@@ -221,26 +221,114 @@ async function searchBoards(opts, known, dictionary, say) {
   return { jobs: found, errors: [...new Set(errors)] };
 }
 
-/**
- * Visible text of one job posting page (the user pasted its link). Pages behind a bot check are not
- * worked around: the user is asked to copy the text from their own browser instead.
- */
-async function pageText(url) {
-  if (!/^https?:\/\//i.test(url)) throw new Error("Paste the full link, starting with https://");
-  const { code } = await load(url);
-  const wc = boardWindow().webContents;
-  await new Promise((r) => setTimeout(r, 2500)); // let the page's scripts render the posting
-  const text = String(await wc.executeJavaScript("document.body ? document.body.innerText : ''"));
-  if (/just a moment|verify you are (a )?human|checking your browser|captcha|security check/i.test(text.slice(0, 3000)) || code === 403)
+/* ---- One posting from a pasted link (no AI) ----
+ * Most job sites publish the posting as schema.org JobPosting data for search engines (title, company,
+ * pay, location, type, dates, description); LinkedIn links go through the same public guest page the
+ * search uses. Anything else falls back to the page title and visible text. Bot checks are not worked
+ * around: the user is asked to paste the text instead. */
+const POSTING = `(() => {
+  const text = (h) => { const d = document.createElement("div"); d.innerHTML = String(h || "").replace(/<li[^>]*>/gi, "\\n- ").replace(/<\\/(p|div|h\\d|ul|ol|li)>|<br\\s*\\/?>/gi, "\\n"); return (d.textContent || "").replace(/[ \\t]+\\n/g, "\\n").replace(/\\n{3,}/g, "\\n\\n").trim(); };
+  const all = [...document.querySelectorAll('script[type="application/ld+json"]')].flatMap((s) => { try { const j = JSON.parse(s.textContent); return [].concat(j, (j && j["@graph"]) || []); } catch { return []; } });
+  const ld = all.find((x) => x && [].concat(x["@type"]).includes("JobPosting")) || null;
+  const meta = (n) => (document.querySelector('meta[property="' + n + '"], meta[name="' + n + '"]') || {}).content || "";
+  const q = (s) => ((document.querySelector(s) || {}).innerText || "").trim();
+  return {
+    ld: ld && JSON.parse(JSON.stringify(ld)), ldText: ld ? text(ld.description) : "",
+    title: q("h1") || meta("og:title") || document.title, pageTitle: meta("og:title") || document.title,
+    li: {
+      title: q(".top-card-layout__title, .topcard__title"), company: q(".topcard__org-name-link, .topcard__flavor a"),
+      location: q(".topcard__flavor--bullet"), description: q(".show-more-less-html__markup, .description__text"),
+      salary: q(".compensation__salary").replace(/\\s+/g, " "),
+      criteria: [...document.querySelectorAll(".description__job-criteria-item")].map((i) => [
+        ((i.querySelector(".description__job-criteria-subheader") || {}).innerText || "").trim(),
+        ((i.querySelector(".description__job-criteria-text") || {}).innerText || "").trim()]),
+    },
+    text: document.body ? document.body.innerText : "",
+  };
+})()`;
+
+const LD_EMP = { FULL_TIME: "Full-time", PART_TIME: "Part-time", CONTRACTOR: "Contract", TEMPORARY: "Temporary", INTERN: "Internship", INTERNSHIP: "Internship", PER_DIEM: "Temporary" };
+const UNIT = { HOUR: "an hour", DAY: "a day", WEEK: "a week", MONTH: "a month", YEAR: "a year" };
+const money = (n) => (typeof n === "number" || /^\d/.test(String(n)) ? Number(n).toLocaleString("en-US") : "");
+/** schema.org baseSalary -> "SGD 3,000 - 4,000 a month" (readable by the pay filter). */
+function salaryText(b) {
+  if (!b) return "";
+  if (typeof b === "string" || typeof b === "number") return String(b);
+  const v = b.value && typeof b.value === "object" ? b.value : { value: b.value };
+  const lo = money(v.minValue ?? v.value), hi = money(v.maxValue);
+  if (!lo && !hi) return "";
+  return [b.currency, [lo, hi].filter(Boolean).join(" - "), UNIT[String(v.unitText || b.unitText || "").toUpperCase()] || ""].filter(Boolean).join(" ");
+}
+const place = (l) => {
+  const a = (l && l.address) || l || {};
+  if (typeof a === "string") return a;
+  const country = typeof a.addressCountry === "string" ? a.addressCountry : (a.addressCountry || {}).name;
+  return [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode, country].filter(Boolean).join(", ");
+};
+const textOf = (v) => [].concat(v || []).map((x) => (typeof x === "string" ? x : (x && (x.name || x.description)) || "")).filter(Boolean).join("\n");
+const stripHtml = (s) => String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+/** Canonical link for a LinkedIn job (…/jobs/view/…-123, ?currentJobId=123) -> its id, else "". */
+const linkedinId = (url) => (/linkedin\.com/i.test(url) && (url.match(/currentJobId=(\d+)/) || url.match(/\/jobs\/view\/(?:[^/?]*-)?(\d+)/) || [])[1]) || "";
+
+/** Only public web pages: no local files, localhost or private network addresses. */
+function publicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { throw new Error("That doesn't look like a link. Paste the full address, starting with https://"); }
+  if (!/^https?:$/.test(u.protocol)) throw new Error("Only web links (https://…) can be read.");
+  if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.|\[?::1\]?$)/i.test(u.hostname) || !u.hostname.includes(".")) throw new Error("Only public job sites can be read.");
+  return u.href;
+}
+
+/** Map what the page gave us to a Job (fields the renderer's Job type expects). */
+function postingJob(url, p, dictionary) {
+  const ld = p.ld || {};
+  const li = p.li || {};
+  const crit = Object.fromEntries((li.criteria || []).filter(([k]) => k));
+  const siteSuffix = / *[|\-–—] *[^|\-–—]*$/; // "Engineer | Acme Careers" -> "Engineer"
+  const title = stripHtml(ld.title) || li.title || String(p.title || p.pageTitle || "").replace(siteSuffix, "").trim();
+  const org = ld.hiringOrganization;
+  // "Job Application for Account Executive at Anthropic" -> Anthropic, when the page names no hiring organisation.
+  // Hosted career pages name the company in the link: job-boards.greenhouse.io/anthropic/jobs/1 -> Anthropic.
+  const { hostname, pathname } = new URL(url);
+  const slug = /(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com)$/.test(hostname) ? pathname.split("/")[1] || "" : "";
+  const company = (typeof org === "string" ? org : (org && org.name) || "") || li.company || ((String(p.pageTitle || "").match(/\bat\s+([^|–—]+?)\s*(?:[|–—]|$)/) || [])[1] || "").trim()
+    || slug.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const location = [].concat(ld.jobLocation || []).map(place).filter(Boolean).join(" · ") || li.location || "";
+  const description = p.ldText || li.description || String(p.text || "").slice(0, 20000).trim();
+  const requirements = [textOf(ld.qualifications), textOf(ld.skills), textOf(ld.experienceRequirements), textOf(ld.educationRequirements)]
+    .map(stripHtml).filter(Boolean).join("\n") || Object.entries(crit).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join("\n");
+  const employment = [...new Set([].concat(ld.employmentType || []).map((e) => LD_EMP[String(e).toUpperCase()] || String(e)))].join(", ") || crit["Employment type"] || "";
+  const workplace = /TELECOMMUTE/i.test(String(ld.jobLocationType || "")) ? "Remote" : workFrom(`${title} ${location}`);
+  const now = new Date().toISOString();
+  return {
+    id: `pasted-${linkedinId(url) ? `li-${linkedinId(url)}` : require("crypto").createHash("sha1").update(url.replace(/[#?].*$/, "")).digest("hex").slice(0, 12)}`,
+    source: "pasted", url, title: title || "Job posting", company, location, salary: salaryText(ld.baseSalary) || li.salary || "",
+    type: employment, employment, workplace, level: crit["Seniority level"] || "",
+    skills: skillsIn(`${title}\n${description}\n${requirements}`, dictionary), description, requirements,
+    deadline: String(ld.validThrough || "").slice(0, 10), posted: String(ld.datePosted || "").slice(0, 10) || now.slice(0, 10),
+    vacancies: String(ld.totalJobOpenings || ""), website: "", companyProfile: "", active: true, scrapedAt: now,
+  };
+}
+
+async function scrapePosting(rawUrl, dictionary) {
+  const url = publicUrl(String(rawUrl || "").trim());
+  const id = linkedinId(url);
+  const { wc, code } = await load(id ? `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${id}` : url);
+  if (code === 429) throw new Error("The site is rate-limiting right now. Try again in a minute, or paste the posting's text.");
+  await wait(id ? 300 : 2500); // let the page's scripts render the posting
+  const p = await wc.executeJavaScript(POSTING, true);
+  if (/just a moment|verify you are (a )?human|checking your browser|captcha|security check/i.test(String(p.text).slice(0, 3000)) || code === 403)
     throw new Error("That site shows a bot check. Open the posting in your browser, copy its text and paste it here instead.");
-  if (text.trim().length < 200) throw new Error("Couldn't read a posting on that page (it may need a sign-in). Copy the posting's text and paste it here instead.");
-  return text.slice(0, 40000);
+  if (!p.ld && !p.li.description && String(p.text).trim().length < 200)
+    throw new Error("Couldn't find a job posting on that page (it may need a sign-in). Copy the posting's text and paste it here instead.");
+  return postingJob(id ? `https://www.linkedin.com/jobs/view/${id}` : url, p, dictionary);
 }
 
 module.exports = {
   searchBoards,
-  pageText,
+  scrapePosting,
   stopBoards: () => { cancelled = true; },
   showBoardWindow: () => { const w = boardWindow(); w.show(); w.focus(); },
-  _test: { skillsIn, indeedHost, passes, workFrom, empKey },
+  _test: { skillsIn, indeedHost, passes, workFrom, empKey, postingJob, salaryText, linkedinId, publicUrl },
 };

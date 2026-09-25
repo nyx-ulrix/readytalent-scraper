@@ -50,6 +50,16 @@ export async function fetchJobs(): Promise<Job[]> {
 }
 
 /** Portal's exact lists once scraped; built-in defaults before that. */
+/** Read a job posting from its link on the laptop app (works from the tablet too). No AI. */
+export async function scrapePosting(url: string): Promise<Job> {
+  let r: Response;
+  try { r = await fetch("/api/posting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }); }
+  catch { throw new Error("Reading links needs the laptop app running. Paste the posting's text instead."); }
+  const out = await r.json().catch(() => ({ error: "The laptop app needs updating to read links." }));
+  if (!r.ok || !out.job) throw new Error(out.error || "Couldn't read that link.");
+  return out.job as Job;
+}
+
 export async function fetchBoardJobs(): Promise<Job[]> {
   try { const r = await fetch("/api/board-jobs"); return r.ok ? r.json() : []; } catch { return []; }
 }

@@ -126,7 +126,6 @@ declare global {
       stopBoards: () => Promise<void>;
       showBoardWindow: () => Promise<void>;
       removeBoardJobs: (ids: string[] | "all") => Promise<number>;
-      pageText: (url: string) => Promise<string>;
       onBoardsProgress: (cb: (p: { msg: string }) => void) => () => void;
       setCreds: (user: string, pass: string) => Promise<{ user: string }>;
       getCreds: () => Promise<{ user: string }>;
