@@ -242,6 +242,22 @@ ${source}`, SYSTEM, true);
   return Array.isArray(arr) ? [...new Set(arr.map(String).map((k: string) => k.trim()).filter(Boolean))] : [];
 }
 
+/**
+ * Read a job posting the user pasted. The AI only fills the fields; the posting text itself becomes the
+ * description, and listed skills must appear in it.
+ */
+export async function readPosting(cfg: AiConfig, text: string): Promise<Pick<Job, "title" | "company" | "location" | "salary" | "deadline" | "requirements" | "skills" | "employment" | "workplace" | "level">> {
+  const out = await ai(cfg, `Extract the details of this job posting. Copy the posting's own wording; use "" or [] when something is not stated.
+Return JSON: {"title", "company", "location", "salary", "deadline", "employment" (one of "Full-time", "Part-time", "Contract", "Temporary", "Internship" or ""), "workplace" (one of "On-site", "Remote", "Hybrid" or ""), "level" (e.g. "Internship", "Entry level", "Mid-Senior level" or ""), "requirements" (the requirements / qualifications, one per line), "skills" (string[]: the skills, tools and qualifications asked for, as short names)}.
+
+Posting:
+${text.slice(0, 30000)}`, "You extract structured data from job postings. Never invent details.", true);
+  const p = JSON.parse(out) as Record<string, unknown>;
+  const s = (k: string) => (typeof p[k] === "string" ? (p[k] as string).trim() : "");
+  const skills = Array.isArray(p.skills) ? [...new Set(p.skills.map(String).map((x) => x.trim()).filter((x) => x && inSource(x, text)))] : [];
+  return { title: s("title"), company: s("company"), location: s("location"), salary: s("salary"), deadline: s("deadline"), requirements: s("requirements"), skills, employment: s("employment"), workplace: s("workplace"), level: s("level") };
+}
+
 export function matchKeywords(keywords: string[], text: string) {
   const hit = keywords.filter((k) => inSource(k, text));
   return { hit, miss: keywords.filter((k) => !hit.includes(k)) };

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, useAppState } from "./store";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
-import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
+import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
 /** "24 Sept 2026, 3:42 pm" for when a tailored resume / letter was generated; "" if unknown (made before timestamps). */
@@ -21,7 +21,7 @@ type ListMode = "rt" | "boards" | "saved" | "applied";
 type Update = (patch: Partial<State> | ((s: State) => State)) => void;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
 const TAB_LABEL: Record<Tab, string> = { jobs: "ReadyTalent", search: "Search", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
-const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed" } as const;
+const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", pasted: "Pasted" } as const;
 const sourceOf = (j: Job) => (j.source ? SOURCE_LABEL[j.source] : "ReadyTalent");
 
 /** Every AI action goes through this: nothing calls the AI without a click, and the user is told it costs tokens. */
@@ -46,7 +46,7 @@ export default function App() {
   const [sel, setSelMap] = useState<Partial<Record<Tab, Job | null>>>({});
   const [doc, setDoc] = useState<{ kind: "resume" | "letter"; jobId: string }>({ kind: "resume", jobId: "" });
   useEffect(() => { fetchJobs().then(setJobs); fetchBoardJobs().then(setBoardJobs); }, []);
-  const allJobs = useMemo(() => [...jobs, ...boardJobs], [jobs, boardJobs]);
+  const allJobs = useMemo(() => [...jobs, ...(state.pasted || []), ...boardJobs], [jobs, boardJobs, state.pasted]);
   if (!ready) return null;
   const open = (kind: "resume" | "letter", jobId: string) => { setDoc({ kind, jobId }); setTab("resume"); };
   const selFor = (t: Tab) => ({ sel: sel[t] || null, setSel: (j: Job | null) => setSelMap((m) => ({ ...m, [t]: j })) });
@@ -394,7 +394,12 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
           </button>
           {state.covers[job.id] && <button className="ghost" onClick={() => open("letter", job.id)}>View letter</button>}
           {stamp(state, "letter", job.id) && <span className="small muted">Written {stamp(state, "letter", job.id)}</span>}
-          {job.source
+          {job.source === "pasted"
+            ? <>
+                {job.url && <a className="small" href={job.url} target="_blank" rel="noreferrer">Open posting ↗</a>}
+                <button className="ghost small" onClick={() => { if (confirm(`Delete the pasted posting "${job.title}"? Its tailored resume and letter stay.`)) { update((s) => ({ ...s, pasted: (s.pasted || []).filter((j) => j.id !== job.id), saved: s.saved.filter((i) => i !== job.id) })); back(); } }}>Delete posting</button>
+              </>
+            : job.source
             ? <a className="small" href={job.url} target="_blank" rel="noreferrer">Open on {sourceOf(job)} ↗</a>
             : <a className="small" href={PORTAL} target="_blank" rel="noreferrer" onClick={(e) => { if (isDesktop()) { e.preventDefault(); window.desktop!.openPortal(); } }}>Apply on ReadyTalent ↗</a>}
         </div>
@@ -583,7 +588,7 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
   );
   return (
     <div className="search-page">
-      <Jobs mode="boards" jobs={boardJobs} state={state} update={update} sel={sel} setSel={setSel} open={open} header={panel} />
+      <Jobs mode="boards" jobs={[...(state.pasted || []), ...boardJobs]} state={state} update={update} sel={sel} setSel={setSel} open={open} header={<>{panel}<PastePosting state={state} update={update} onAdded={setSel} /></>} />
     </div>
   );
 }
@@ -902,6 +907,56 @@ function ModelPicker({ state, update }: { state: State; update: Update }) {
         </details>
       )}
     </>
+  );
+}
+
+/** Paste a job posting (its text, or a link on the laptop app) to keep it with your jobs and tailor for it. */
+function PastePosting({ state, update, onAdded }: { state: State; update: Update; onAdded: (j: Job) => void }) {
+  const [text, setText] = useState("");
+  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [company, setCompany] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const add = (job: Partial<Job>, body: string) => {
+    const j: Job = {
+      id: `pasted-${Date.now()}`, title: "", company: "", type: "", salary: "", location: "", skills: [], description: body.trim(), requirements: "",
+      deadline: "", posted: new Date().toISOString().slice(0, 10), vacancies: "", website: "", companyProfile: "", active: true,
+      scrapedAt: new Date().toISOString(), source: "pasted", url: url.trim() || undefined, ...job,
+    };
+    j.title = title.trim() || j.title || "Pasted job"; j.company = company.trim() || j.company;
+    j.type = j.employment || "";
+    update((s) => ({ ...s, pasted: [j, ...(s.pasted || [])] }));
+    setText(""); setUrl(""); setTitle(""); setCompany(""); setErr("");
+    onAdded(j);
+  };
+  const withAi = async () => {
+    setErr("");
+    try {
+      let body = text;
+      if (!body.trim() && url.trim()) { setBusy("Reading the page…"); body = await window.desktop!.pageText(url.trim()); }
+      if (!body.trim()) throw new Error("Paste the posting's text (or its link on the laptop app).");
+      setBusy("Reading the posting…");
+      add(await readPosting(aiCfg(state), body), body);
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
+  return (
+    <details className="search-panel app-chrome">
+      <summary>Paste a job posting <span className="small muted" style={{ fontWeight: 400 }}>· from any site{(state.pasted || []).length ? ` · ${(state.pasted || []).length} pasted` : ""}</span></summary>
+      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the whole job posting here (title, company, description, requirements…)" />
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={isDesktop() ? "Link to the posting (optional; with no text pasted, ✦ reads the page)" : "Link to the posting (optional)"} />
+        <div className="row">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Job title (the AI fills this if blank)" style={{ flex: 1 }} />
+          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" style={{ flex: 1 }} />
+        </div>
+        <div className="row">
+          <button disabled={!!busy || (!text.trim() && !(isDesktop() && url.trim()))} title="Uses AI tokens" onClick={() => { if (aiConfirm(state, "Read this job posting with the AI (title, company, pay, skills…)?")) void withAi(); }}>✦ {busy || "Add with AI"}</button>
+          <button className="ghost" disabled={!!busy || !text.trim() || !title.trim()} title="Needs a job title; no AI is used" onClick={() => add({}, text)}>Add without AI</button>
+        </div>
+        {err && <div className="status err">{err}</div>}
+      </div>
+    </details>
   );
 }
 

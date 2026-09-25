@@ -71,7 +71,7 @@ table.models button.small { padding: 2px 8px; font-size: 12px; }
 
 /* Search page: the panel spans the top, the usual list + detail below. */
 .search-page { height: 100%; }
-.search-page .jobs { grid-template-rows: auto 1fr; }
+.search-page .jobs { grid-template-rows: auto auto 1fr; }
 .search-page .jobs > .search-panel { grid-column: 1 / -1; }
 .search-page .jobs > .list, .search-page .jobs > .detail, .search-page .jobs > .empty { min-height: 0; }
 .search-panel { border-bottom: 1px solid var(--line); padding: 10px 16px 12px; max-height: 48vh; overflow: auto; background: #fcfcfb; }

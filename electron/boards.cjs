@@ -221,8 +221,25 @@ async function searchBoards(opts, known, dictionary, say) {
   return { jobs: found, errors: [...new Set(errors)] };
 }
 
+/**
+ * Visible text of one job posting page (the user pasted its link). Pages behind a bot check are not
+ * worked around: the user is asked to copy the text from their own browser instead.
+ */
+async function pageText(url) {
+  if (!/^https?:\/\//i.test(url)) throw new Error("Paste the full link, starting with https://");
+  const { code } = await load(url);
+  const wc = boardWindow().webContents;
+  await new Promise((r) => setTimeout(r, 2500)); // let the page's scripts render the posting
+  const text = String(await wc.executeJavaScript("document.body ? document.body.innerText : ''"));
+  if (/just a moment|verify you are (a )?human|checking your browser|captcha|security check/i.test(text.slice(0, 3000)) || code === 403)
+    throw new Error("That site shows a bot check. Open the posting in your browser, copy its text and paste it here instead.");
+  if (text.trim().length < 200) throw new Error("Couldn't read a posting on that page (it may need a sign-in). Copy the posting's text and paste it here instead.");
+  return text.slice(0, 40000);
+}
+
 module.exports = {
   searchBoards,
+  pageText,
   stopBoards: () => { cancelled = true; },
   showBoardWindow: () => { const w = boardWindow(); w.show(); w.focus(); },
   _test: { skillsIn, indeedHost, passes, workFrom, empKey },

@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
-const { searchBoards, stopBoards, showBoardWindow } = require("./boards.cjs");
+const { searchBoards, stopBoards, showBoardWindow, pageText } = require("./boards.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -260,6 +260,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
   } finally { boardsBusy = false; }
 });
 ipcMain.handle("boards:stop", () => { stopBoards(); });
+ipcMain.handle("page:text", (_e, url) => pageText(String(url || "").trim()));
 ipcMain.handle("boards:window", () => { showBoardWindow(); });
 ipcMain.handle("boards:remove", (_e, ids) => {
   const keep = ids === "all" ? [] : readJson("board-jobs.json", []).filter((j) => !(ids || []).includes(j.id));
