@@ -1,12 +1,13 @@
 import type { Entry, Profile } from "./types";
-import { MAX_PROJECTS, sectionLimit } from "./limits.ts";
+import { sectionKey } from "./limits.ts";
 
 /**
  * Deterministic guard run after every AI rewrite: the output may only contain facts from the
  * candidate's own source text (their resume + the notes they typed). The AI rewords; this file
  * makes sure nothing new slips through:
  * - contact details, entry titles/orgs/locations/dates, awards and section names are pinned to the original;
- * - entries the AI invented are dropped; education and work experience always stay, projects (max 3) and extra-section entries (leadership max 2) follow the AI's relevance pick;
+ * - entries the AI invented are dropped; education and work experience always stay; projects, extra-section entries and skills
+ *   are ranked (the AI's picks first, in its order, then everything else) and `show` records how many the AI picked;
  * - a bullet or summary containing a number that is not in the source reverts to the original;
  * - skills and labelled-line items (Soft Skills, Languages...) must appear in the source text.
  */
@@ -60,23 +61,23 @@ function groundEntries(orig: Entry[], ai: Entry[] | undefined, ctx: (o: Entry) =
 }
 
 /**
- * Only the entries the AI chose, in its order (most relevant first), capped at `max`. Invented entries are
- * ignored. If the AI's list is missing or none of it matches, fall back to the first `max` originals; with
- * `allowEmpty`, a deliberately empty list stands (e.g. a hackathon section that only repeated listed projects).
+ * Every original entry, ranked: the ones the AI chose first (its order, rewritten bullets), then the rest
+ * unchanged in your order. `shown` = how many the AI chose. Invented entries are ignored. If the AI's list is
+ * missing or none of it matches, your order stands and `shown` is unset; with `allowEmpty`, a deliberately
+ * empty list means show none (e.g. a hackathon section that only repeated listed projects).
  */
-function chooseEntries(orig: Entry[], ai: Entry[] | undefined, ctx: (o: Entry) => BulletContext, max: number, allowEmpty = false): Entry[] {
-  if (allowEmpty && Array.isArray(ai) && ai.length === 0) return [];
+function rankEntries(orig: Entry[], ai: Entry[] | undefined, ctx: (o: Entry) => BulletContext, allowEmpty = false): { entries: Entry[]; shown?: number } {
   const used = new Set<number>();
-  const out: Entry[] = [];
+  const top: Entry[] = [];
   for (const a of Array.isArray(ai) ? ai : []) {
-    if (out.length >= max) break;
     let i = orig.findIndex((o, k) => !used.has(k) && sameEntry(o, a));
     if (i < 0) i = orig.findIndex((o, k) => !used.has(k) && sameTitle(o, a)); // org reworded
     if (i < 0) continue;
     used.add(i);
-    out.push(pinEntry(orig[i], a, ctx(orig[i])));
+    top.push(pinEntry(orig[i], a, ctx(orig[i])));
   }
-  return out.length ? out : orig.slice(0, max);
+  if (!top.length && !(allowEmpty && Array.isArray(ai) && ai.length === 0)) return { entries: orig };
+  return { entries: [...top, ...orig.filter((_, k) => !used.has(k))], shown: top.length };
 }
 
 /** "Soft Skills: A | B, C" -> keep only items that appear in the source; drop the line if none survive. */
@@ -100,18 +101,28 @@ export function groundProfile(orig: Profile, ai: Partial<Profile>, source: strin
   const all = [...orig.education, ...orig.experience, ...orig.projects, ...(orig.sections || []).flatMap((s) => s.entries)];
   const ctx = (o: Entry): BulletContext => ({ notes, general, others: namesIn(all.filter((e) => e !== o).map(entryText).join("\n")) });
   const summary = typeof ai.summary === "string" && numbersSupported(ai.summary, source) ? ai.summary : orig.summary;
+  const show: Record<string, number> = {};
+  // Skills: the AI's picks first, then every other skill you listed (stored, not shown).
+  const picked = [...new Set(skills)];
+  const shownSkills = picked.length ? picked : orig.skills.filter((s) => !labelled.has(norm(s)));
+  show.skills = shownSkills.length;
+  const projects = rankEntries(orig.projects, ai.projects, ctx);
+  if (projects.shown !== undefined) show.projects = projects.shown;
+  const sections = (orig.sections || []).map((s) => {
+    const r = rankEntries(s.entries, (Array.isArray(ai.sections) ? ai.sections : []).find((t) => t && norm(t.title || "") === norm(s.title))?.entries, ctx, true);
+    if (r.shown !== undefined) show[sectionKey(s.title)] = r.shown;
+    return { ...s, entries: r.entries };
+  });
   return {
     ...orig,
     summary,
-    skills: skills.length ? [...new Set(skills)] : orig.skills.filter((s) => !labelled.has(norm(s))),
+    skills: [...shownSkills, ...orig.skills.filter((s) => !shownSkills.some((x) => norm(x) === norm(s)))],
     education: groundEntries(orig.education, ai.education, ctx),
     experience: groundEntries(orig.experience, ai.experience, ctx),
-    projects: chooseEntries(orig.projects, ai.projects, ctx, MAX_PROJECTS),
-    sections: (orig.sections || []).map((s) => ({
-      ...s,
-      entries: chooseEntries(s.entries, (Array.isArray(ai.sections) ? ai.sections : []).find((t) => t && norm(t.title || "") === norm(s.title))?.entries, ctx, sectionLimit(s.title), true),
-    })),
+    projects: projects.entries,
+    sections,
     additional: additional.length ? additional : orig.additional || [],
+    show,
   };
 }
 
@@ -121,7 +132,9 @@ export function groundProfile(orig: Profile, ai: Partial<Profile>, source: strin
  */
 export function applySkillPrefs(p: Profile, prefs: { include: string[]; omit: string[] }): Profile {
   const omitted = (s: string) => prefs.omit.some((o) => norm(o) === norm(s));
-  const skills = p.skills.filter((s) => !omitted(s));
+  const n = p.show?.skills ?? p.skills.length;
+  const shownSkills = p.skills.slice(0, n).filter((s) => !omitted(s));
+  const skills = [...shownSkills, ...p.skills.slice(n).filter((s) => !omitted(s))];
   const additional = (p.additional || []).map((line) => {
     const m = line.match(/^([^:]{1,40}):\s*(.*)$/);
     if (!m) return omitted(line) ? null : line;
@@ -129,7 +142,9 @@ export function applySkillPrefs(p: Profile, prefs: { include: string[]; omit: st
     const items = m[2].split(/\s*[|,]\s*/).filter((it) => it && !omitted(it));
     return items.length ? `${m[1]}: ${items.join(sep)}` : null;
   }).filter((l): l is string => !!l);
-  const text = [p.summary, skills.join(" | "), additional.join("\n"), ...[...p.experience, ...p.projects, ...p.education, ...(p.sections || []).flatMap((x) => x.entries)].flatMap((e) => e.details)].join("\n");
+  const text = [p.summary, shownSkills.join(" | "), additional.join("\n"), ...[...p.experience, ...p.projects, ...p.education, ...(p.sections || []).flatMap((x) => x.entries)].flatMap((e) => e.details)].join("\n");
+  // Confirmed skills go on the page (end of the shown part); a stored-but-hidden one moves up.
   const missing = prefs.include.filter((k) => k.trim() && !omitted(k) && !inSource(k, text));
-  return { ...p, skills: [...skills, ...missing], additional };
+  const rest = skills.slice(shownSkills.length).filter((s) => !missing.some((m) => norm(m) === norm(s)));
+  return { ...p, skills: [...shownSkills, ...missing, ...rest], additional, show: { ...(p.show || {}), skills: shownSkills.length + missing.length } };
 }

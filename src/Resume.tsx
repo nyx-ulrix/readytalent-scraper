@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { Entry, Profile, Template } from "./types";
 import { Linkify } from "./linkify";
 import { headerLinks } from "./links";
-import { MAX_PROJECTS, sectionLimit } from "./limits";
+import { visible } from "./limits";
 
 /** Smallest text allowed on a resume or letter. */
 export const MIN_FONT_PT = 8;
@@ -80,7 +80,7 @@ const DENSITY: { tight: boolean; bullets: number }[] = [
   { tight: true, bullets: 4 }, { tight: true, bullets: 3 }, { tight: true, bullets: 2 }, { tight: true, bullets: 1 }, { tight: true, bullets: 0 },
 ];
 const hiddenCount = (p: Profile, cap: number) =>
-  [...p.education, ...p.experience, ...p.projects.slice(0, MAX_PROJECTS), ...(p.sections || []).flatMap((s) => s.entries.slice(0, sectionLimit(s.title)))]
+  [...p.education, ...p.experience, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)]
     .reduce((n, e) => n + Math.max(0, bullets(e).length - cap), 0);
 
 /** Picks the first density step that fits; resets when the content or template changes. */
@@ -166,8 +166,8 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => voi
       {p.summary && <Section title="Profile"><p><Linkify text={p.summary} /></p></Section>}
       <StdEntries title="Education" items={p.education} kind="edu" cap={d.bullets} />
       <StdEntries title="Work Experience" items={p.experience} kind="exp" cap={d.bullets} />
-      <StdEntries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} kind="other" cap={d.bullets} />
-      {extra.map((s, i) => <StdEntries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} kind="other" cap={d.bullets} />)}
+      <StdEntries title="Projects" items={p.projects} kind="other" cap={d.bullets} />
+      {extra.map((s, i) => <StdEntries key={i} title={s.title} items={s.entries} kind="other" cap={d.bullets} />)}
       {(awards.length > 0 || p.skills.length > 0 || additional.length > 0) && (
         <Section title="Certifications & Additional Skills">
           {awards.map((a, i) => <Labelled key={`a${i}`} text={a} />)}
@@ -181,8 +181,9 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => voi
 
 /** A4 page. Standard has its own layout; the other templates share one DOM and differ only in CSS. */
 export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
-  if (template === "standard") return <StandardPage p={p} onFit={onFit} />;
-  return <OtherPage p={p} template={template} onFit={onFit} />;
+  // Only the top of each ranked list goes on the page; the rest stays stored.
+  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} />;
+  return <OtherPage p={visible(p)} template={template} onFit={onFit} />;
 }
 
 function OtherPage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
@@ -204,9 +205,9 @@ function OtherPage({ p, template, onFit }: { p: Profile; template: Template; onF
         </Section>
       )}
       <Entries title="Experience" items={p.experience} cap={d.bullets} />
-      <Entries title="Projects" items={p.projects.slice(0, MAX_PROJECTS)} cap={d.bullets} />
+      <Entries title="Projects" items={p.projects} cap={d.bullets} />
       <Entries title="Education" items={p.education} cap={d.bullets} />
-      {extra.filter((s) => hasEntries(s.entries)).map((s, i) => <Entries key={i} title={s.title} items={s.entries.slice(0, sectionLimit(s.title))} cap={d.bullets} />)}
+      {extra.filter((s) => hasEntries(s.entries)).map((s, i) => <Entries key={i} title={s.title} items={s.entries} cap={d.bullets} />)}
       {(p.awards.filter(Boolean).length > 0 || additional.length > 0) && (
         <Section title="Awards & Certifications">
           {p.awards.filter(Boolean).length > 0 && <ul>{p.awards.filter(Boolean).map((a, i) => <li key={i}><Linkify text={a} /></li>)}</ul>}

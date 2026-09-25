@@ -1,7 +1,7 @@
 import type { Job, Profile } from "./types";
 import { fromMarkdown, toMarkdown } from "./markdown";
 import { applySkillPrefs, groundProfile, inSource } from "./ground";
-import { MAX_LEADERSHIP, MAX_PROJECTS } from "./limits";
+import { MAX_LEADERSHIP, MAX_PROJECTS, byRank, visible } from "./limits";
 
 export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
 /** model: the exact model id the user picked in Settings; "" = the provider default below. */
@@ -276,7 +276,7 @@ export async function tailorResume(cfg: AiConfig, profile: Profile, job: Job, ke
   const draft = await ai(cfg, `Curate this candidate's resume for ONE job. A recruiter will scan it for about 30 seconds and must see, in the top half of the page, why this candidate fits THIS role.
 
 Return JSON with the same keys as the profile JSON: ${PROFILE_SHAPE}
-For every entry you keep, copy its title, org, location and dates exactly.
+For every entry you keep, copy its title, org, location and dates exactly. List only what should appear on the page; anything you leave out is still stored, just not shown.
 
 SELECT (what appears)
 - Education and work experience: keep every entry.
@@ -350,7 +350,7 @@ export async function coverLetter(cfg: AiConfig, profile: Profile, job: Job, key
 Use as many of the ATS keywords and soft skills as the source supports, each tied to a stated experience; mention languages from the notes (e.g. Mandarin / Chinese) if the job values them. Use only facts and numbers from the source. No placeholders like [Company].${prefsText(prefs)} Start with "Dear Hiring Manager," and end with "Sincerely," and the candidate's name. Plain text only.
 ATS keywords: ${JSON.stringify(keywords)}
 Job: ${jobText(job)}
-${tailored ? `Tailored resume emphasis for this job (wording only; facts must still come from the source):\n${toMarkdown(tailored, false)}\n` : ""}
+${tailored ? `Tailored resume emphasis for this job (wording only; facts must still come from the source):\n${toMarkdown(visible(tailored), false)}\n` : ""}
 Candidate source (Markdown, the only facts you may use):
 ${source}`, SYSTEM);
   const checked = await factCheck(cfg, source, draft, false);
@@ -364,6 +364,32 @@ const listFrom = (out: string, key: string): string[] => {
 };
 
 /** Roles that fit the candidate's resume, excluding ones they already listed. */
+/**
+ * Rank the candidate's own lists (projects, each extra section, skills) by relevance to the roles they want.
+ * Only the order changes: nothing is rewritten or removed, and the page shows the top of each list.
+ */
+export async function rankProfile(cfg: AiConfig, profile: Profile, roles: string[], notes: string): Promise<(p: Profile) => Profile> {
+  const brief = {
+    projects: profile.projects.map((e) => ({ title: e.title, stack: e.org, points: e.details })),
+    sections: (profile.sections || []).map((s) => ({ title: s.title, entries: s.entries.map((e) => ({ title: e.title, dates: e.dates, points: e.details })) })),
+    skills: profile.skills,
+  };
+  const out = await ai(cfg, `Rank this candidate's resume items by how strongly they support ${roles.length ? `these target roles: ${JSON.stringify(roles)}` : "the roles their resume fits best"}.
+Most relevant first. Prefer substantial, role-relevant work with concrete results over coursework and small practice projects; completed roles over upcoming ones; technical skills that the target roles use over generic ones.
+Return JSON {"projects": [title, ...], "sections": [{"title": section title, "entries": [title, ...]}], "skills": [skill, ...]} listing EVERY item exactly as written (same spelling), just reordered.
+${notes.trim() ? `Candidate notes: ${notes}\n` : ""}Items:
+${JSON.stringify(brief)}`, "You rank resume content for recruiters. You never add, rename or drop items.", true);
+  const r = JSON.parse(out) as { projects?: unknown; sections?: { title?: string; entries?: unknown }[]; skills?: unknown };
+  const secs = Array.isArray(r.sections) ? r.sections : [];
+  // Applied to the profile as it is when the answer arrives, so edits made meanwhile are kept.
+  return (p) => ({
+    ...p,
+    projects: byRank(p.projects, r.projects, (e) => e.title),
+    sections: (p.sections || []).map((s) => ({ ...s, entries: byRank(s.entries, secs.find((x) => String(x?.title || "").toLowerCase().trim() === s.title.toLowerCase().trim())?.entries, (e) => e.title) })),
+    skills: byRank(p.skills, r.skills, (s) => s),
+  });
+}
+
 export async function suggestRoles(cfg: AiConfig, source: string, interests: string[]): Promise<string[]> {
   const out = await ai(cfg, `Suggest 10 job roles this candidate is a strong fit for right now, based only on their resume and notes. Mix direct fits and realistic stretch roles; include internship-level titles if they are a student. Use common job-board titles.
 Already interested in (do not repeat): ${JSON.stringify(interests)}

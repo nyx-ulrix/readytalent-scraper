@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, useAppState } from "./store";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
-import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
+import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
 /** "24 Sept 2026, 3:42 pm" for when a tailored resume / letter was generated; "" if unknown (made before timestamps). */
@@ -13,7 +13,7 @@ const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.p
 import { LetterPage, MIN_FONT_PT, ResumePage, type FitInfo } from "./Resume";
 import { MARKER, toMarkdown } from "./markdown";
 import { monthlyPay, payPasses } from "./pay";
-import { MAX_LEADERSHIP, MAX_PROJECTS, isLeadership } from "./limits";
+import { MAX_PROJECTS, MAX_SKILLS, isLeadership, sectionKey, sectionLimit, shownCount } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
 type Tab = "jobs" | "search" | "saved" | "applied" | "resume" | "settings";
@@ -679,6 +679,15 @@ function Settings({ state, update }: { state: State; update: Update }) {
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState("");
+  const [ranking, setRanking] = useState("");
+  const rank = async () => {
+    setRanking("Ranking…");
+    try {
+      const apply = await rankProfile(aiCfg(state), p, state.interests || [], state.about || "");
+      update((s) => ({ ...s, profile: apply(s.profile) }));
+      setRanking("Ranked. The page shows the top of each list; nothing was removed.");
+    } catch (e) { setRanking(`Ranking failed: ${(e as Error).message}`); }
+  };
   useEffect(() => {
     fetchMeta().then(setMeta);
     if (isDesktop()) fetch("/api/info").then((r) => r.json()).then((i) => setLan(i.lan || [])).catch(() => undefined);
@@ -755,6 +764,10 @@ function Settings({ state, update }: { state: State; update: Update }) {
         {field("links", "Other links (optional)", "e.g. https://yourblog.com · https://dribbble.com/you")}
       </div>
       <div className="small muted">The resume header shows phone • email • portfolio • LinkedIn • GitHub, all clickable in the PDF.</div>
+      <div className="row" style={{ marginTop: 16, alignItems: "center" }}>
+        <button className="ghost" title="Uses AI tokens" disabled={ranking === "Ranking…"} onClick={() => { if (aiConfirm(state, `Rank your projects, sections and skills by relevance to ${(state.interests || []).length ? "the roles you want (Search tab)" : "the roles your resume fits"}? Only the order changes.`)) void rank(); }}>✦ Rank by relevance</button>
+        <span className="small muted">{ranking || "Everything stays stored; resumes show the top of each list."}</span>
+      </div>
       <ProfileBody p={p} setP={setP} />
       <label>More about you, for the AI only (languages such as Mandarin / Chinese, soft skills, achievements). Resumes and letters may only state facts from your resume and this box.</label>
       <textarea value={state.about || ""} rows={4} placeholder={"e.g. Fluent in English and Mandarin (Chinese). Strong at teamwork, communication and problem solving."} onChange={(e) => update({ about: e.target.value })} />
@@ -898,11 +911,12 @@ function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) 
     <>
       <label>Summary</label>
       <textarea value={p.summary} onChange={(e) => setP({ summary: e.target.value })} placeholder="2-3 lines about you. The AI can rewrite this per job." />
-      <label>Skills (comma separated)</label>
+      <label>Skills (comma separated, most relevant first)</label>
+      <div className="small muted">The page shows the first {Math.min(shownCount(p, "skills", MAX_SKILLS), p.skills.filter(Boolean).length)} of {p.skills.filter(Boolean).length}; the rest stay stored here.</div>
       <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()) })} onBlur={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
 
       <EntryList title="Experience" items={p.experience} onChange={(experience) => setP({ experience })} />
-      <EntryList title="Projects" items={p.projects} onChange={(projects) => setP({ projects })} />
+      <EntryList title="Projects" items={p.projects} shown={shownCount(p, "projects", MAX_PROJECTS)} onChange={(projects) => setP({ projects })} />
       <EntryList title="Education" items={p.education} onChange={(education) => setP({ education })} />
       {(p.sections || []).map((sec, si) => (
         <div key={si}>
@@ -910,7 +924,7 @@ function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) 
             <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
             <button className="ghost" onClick={() => setP({ sections: p.sections.filter((_, j) => j !== si) })}>Remove section</button>
           </div>
-          <EntryList title={sec.title || "Entries"} items={sec.entries} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
+          <EntryList title={sec.title || "Entries"} items={sec.entries} shown={shownCount(p, sectionKey(sec.title), sectionLimit(sec.title))} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
         </div>
       ))}
       <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
@@ -922,15 +936,14 @@ function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) 
   );
 }
 
-function EntryList({ title, items, onChange }: { title: string; items: Entry[]; onChange: (e: Entry[]) => void }) {
+function EntryList({ title, items, shown = Infinity, onChange }: { title: string; items: Entry[]; shown?: number; onChange: (e: Entry[]) => void }) {
   const set = (i: number, patch: Partial<Entry>) => onChange(items.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   return (
     <>
       <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => onChange([...items, emptyEntry()])}>+ Add</button></h2>
-      {title === "Projects" && <div className="small muted">Resumes show at most {MAX_PROJECTS} projects: your base resume shows the first {MAX_PROJECTS} here (use ↑ to reorder); tailored resumes pick the {MAX_PROJECTS} most relevant to each job.</div>}
-      {isLeadership(title) && <div className="small muted">Resumes show at most {MAX_LEADERSHIP} leadership entries: the first {MAX_LEADERSHIP} here on your base resume, the {MAX_LEADERSHIP} most relevant on tailored ones.</div>}
+      {(title === "Projects" || isLeadership(title) || shown < items.length) && <div className="small muted">Ranked, most relevant first: the page shows the top {Math.min(shown, items.length)} (use ↑ to reorder); everything below stays stored.</div>}
       {items.map((e, i) => (
-        <div className="card" key={i}>
+        <div className={`card${i >= shown ? " stored" : ""}`} key={i} title={i >= shown ? "Stored, not on the page" : undefined}>
           <div className="row">
             <input placeholder={title === "Education" ? "Degree" : "Role / project name"} value={e.title} onChange={(ev) => set(i, { title: ev.target.value })} />
             <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />

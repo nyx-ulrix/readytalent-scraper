@@ -38,6 +38,8 @@ main { flex: 1; overflow: auto; }
 .jobs { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
 .list { border-right: 1px solid var(--line); overflow: auto; }
 .list .toolbar { position: sticky; top: 0; background: #fff; padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+/* Ranked entries below the shown ones: kept, not printed */
+.card.stored { opacity: 0.6; border-style: dashed; }
 /* Collapsible filter panel in the job list toolbar */
 .filters { border: 1px solid var(--line); border-radius: 8px; }
 .filters > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-weight: 600; list-style: none; }

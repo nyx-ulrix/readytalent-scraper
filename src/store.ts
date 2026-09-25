@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_META, defaultState, type Job, type Meta, type Profile, type State } from "./types";
 import { splitLinks } from "./links";
+import { withStored } from "./limits";
 import type { LatLon } from "./geo";
 
 const KEY = "autoresume";
@@ -20,6 +21,8 @@ async function load(): Promise<State> {
   if (sp && sp.linkedin === undefined && sp.github === undefined && sp.portfolio === undefined && sp.links) merged.profile = { ...merged.profile, ...splitLinks(sp.links) };
   // One-time switch of older saved state to the new default template.
   if ((s?.defaultsVersion ?? 1) < 2) { merged.template = "standard"; merged.defaultsVersion = 2; }
+  // Tailored resumes from before ranking: keep what they showed, store the rest of your details underneath.
+  merged.tailored = Object.fromEntries(Object.entries(merged.tailored || {}).map(([id, t]) => [id, withStored(t, merged.profile)]));
   return merged;
 }
 

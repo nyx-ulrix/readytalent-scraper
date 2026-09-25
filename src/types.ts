@@ -20,6 +20,8 @@ export type Profile = {
   sections: Section[];
   /** Labelled lines under the skills, e.g. "Soft Skills: Analytical Thinking | Communication". */
   additional: string[];
+  /** How many of each ranked list the page shows ("projects", "skills", "sec:<section title>"); set by tailoring. Unset = the limits in limits.ts. */
+  show?: Record<string, number>;
 };
 export type Template = "standard" | "classic" | "modern" | "compact";
 export type State = {
