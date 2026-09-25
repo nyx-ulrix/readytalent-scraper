@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.0-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.0-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.0-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.1-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.1-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.1-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,12 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.1
+
+- **Everything you enter stays stored; resumes show the top of each list.** Tailored resumes are ranked by the AI for the job (at most 3 projects, 2 leadership roles, 12-18 technical skills); the rest are kept underneath, dimmed in Edit, and ↑ swaps one onto the page. Tailored resumes made earlier keep what they showed and get the rest of your details stored underneath.
+- **✦ Rank by relevance** in Settings sorts your own projects, sections and skills for the roles you want (Search tab). It only reorders; nothing is reworded or removed.
+- Your base resume shows at most 18 technical skills.
 
 ## What's new in 1.2.0
 
