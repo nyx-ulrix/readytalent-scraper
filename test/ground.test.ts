@@ -110,3 +110,12 @@ console.log("ground self-check OK");
   assert.ok(fde > se && se > chef, `${fde} > ${se} > ${chef}`);
   assert.equal(chef, 0);
 }
+
+// "Only if very relevant" entries never reach the base resume; a tailored one shows what the AI picked.
+{
+  const { visible } = await import("../src/limits.ts");
+  const e = (t: string, low = false) => ({ title: t, org: "", location: "", dates: "", details: ["x"], ...(low ? { onlyIfVeryRelevant: true } : {}) });
+  const p = { ...orig, projects: [e("A"), e("B", true), e("C"), e("D")] };
+  assert.deepEqual(visible(p).projects.map((x) => x.title), ["A", "C", "D"], "base resume skips it");
+  assert.deepEqual(visible({ ...p, show: { projects: 2 } }).projects.map((x) => x.title), ["A", "B"], "tailored: the AI's pick stands");
+}

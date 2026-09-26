@@ -19,13 +19,18 @@ export const sectionLimit = (title: string) => (isLeadership(title) ? MAX_LEADER
 export const sectionKey = (title: string) => `sec:${title}`;
 export const shownCount = (p: Profile, key: string, max: number) => Math.min(p.show?.[key] ?? max, max);
 
-/** The part of the profile that goes on the page. */
+/**
+ * The part of the profile that goes on the page. On the base resume (no tailoring), entries you marked
+ * "only if very relevant" are left out; a tailored resume shows what the AI picked for that job.
+ */
 export function visible(p: Profile): Profile {
+  const base = !p.show;
+  const keep = (list: Entry[]) => (base ? list.filter((e) => !e.onlyIfVeryRelevant) : list);
   return {
     ...p,
     skills: p.skills.slice(0, shownCount(p, "skills", MAX_SKILLS)),
-    projects: p.projects.slice(0, shownCount(p, "projects", MAX_PROJECTS)),
-    sections: (p.sections || []).map((s) => ({ ...s, entries: s.entries.slice(0, shownCount(p, sectionKey(s.title), sectionLimit(s.title))) })),
+    projects: keep(p.projects).slice(0, shownCount(p, "projects", MAX_PROJECTS)),
+    sections: (p.sections || []).map((s) => ({ ...s, entries: keep(s.entries).slice(0, shownCount(p, sectionKey(s.title), sectionLimit(s.title))) })),
   };
 }
 

@@ -10,7 +10,8 @@ export type Job = {
 };
 /** A job title the user targets; `jobs` keeps (with full details) the jobs found by "Search jobs like this". */
 export type Target = { title: string; posting: string; terms: string[]; keywords: string[]; at: string; jobs?: Job[] };
-export type Entry = { title: string; org: string; location?: string; dates: string; details: string[] };
+/** `onlyIfVeryRelevant`: the user doesn't find this impressive; use it only when it closely matches a job (never on the base resume). */
+export type Entry = { title: string; org: string; location?: string; dates: string; details: string[]; onlyIfVeryRelevant?: boolean };
 /** Extra resume sections beyond the built-in ones, e.g. "Competition", "Leadership & Co-Curricular Activities". */
 export type Section = { title: string; entries: Entry[] };
 export type Profile = {

@@ -1204,9 +1204,9 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
   return (
     <>
       <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => onChange([...items, emptyEntry()])}>+ Add</button></h2>
-      <div className="small muted">Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
+      <div className="small muted">Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job; tick "Only if very relevant" on ones you don't want shown otherwise.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
       {items.map((e, i) => (
-        <div className={`card${i >= shown ? " stored" : ""}`} key={i} title={i >= shown ? "Stored, not on the page" : undefined}>
+        <div className={`card${i >= shown || e.onlyIfVeryRelevant ? " stored" : ""}`} key={i} title={e.onlyIfVeryRelevant ? "Only used when very relevant to a job" : i >= shown ? "Stored, not on the page" : undefined}>
           <div className="row">
             <input placeholder={title === "Education" ? "Degree" : "Role / project name"} value={e.title} onChange={(ev) => set(i, { title: ev.target.value })} />
             <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
@@ -1217,6 +1217,9 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
             {i < items.length - 1 && <button className="ghost" title="Rank lower" onClick={() => onChange(items.map((x, j) => (j === i + 1 ? items[i] : j === i ? items[i + 1] : x)))}>↓</button>}
             <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>
+          <label className="only-if" title="For things you don't find impressive: tailored resumes use it only when it closely matches the job, and your base resume leaves it out.">
+            <input type="checkbox" checked={!!e.onlyIfVeryRelevant} onChange={(ev) => set(i, { onlyIfVeryRelevant: ev.target.checked || undefined })} /> Only if very relevant (not one I'd showcase)
+          </label>
           <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
         </div>
       ))}

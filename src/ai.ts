@@ -299,6 +299,7 @@ SELECT (what appears)
 - Projects: at most ${MAX_PROJECTS}, the ones that best prove this job's core requirements, most relevant first. Prefer substantial, role-relevant work over coursework and small practice projects.
 - Leadership / co-curricular: at most ${MAX_LEADERSHIP}, most relevant first; prefer completed roles over upcoming ones.
 - The candidate listed every list (projects, experience, leadership and other sections) in their own ranking: first = what they most want to showcase. Among entries that are relevant enough to this job, choose the candidate's higher-ranked ones; put a lower-ranked entry ahead only when it is clearly more relevant.
+- Entries with "onlyIfVeryRelevant": true are ones the candidate does not find impressive. Leave them out unless they are very closely relevant to this job's core requirements (a near-direct match that no higher-ranked entry covers).
 - Other extra sections (e.g. hackathons): keep an entry only if it adds something not already shown. If a hackathon's project is already listed under Projects, drop the hackathon entry; return the section with an empty "entries" list if nothing is left.
 
 WRITE (how it reads)
