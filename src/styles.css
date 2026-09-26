@@ -138,6 +138,13 @@ button.small { padding: 3px 9px; font-size: 12px; }
   input, select, textarea { font-size: 16px; } /* stops iOS zooming into fields */
 }
 
+/* Typed-"delete" confirmation */
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.modal { background: #fff; border-radius: 10px; padding: 16px 18px; width: min(420px, 100%); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.modal p { margin: 6px 0 4px; }
+button.danger { background: #b42318; border-color: #b42318; }
+button.danger-text { color: #b42318; }
+button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 5px 8px; }
 /* Details tab: each entry is a one-line title that opens to edit */
 .card.entry { padding: 0; }
 .card.entry > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; }

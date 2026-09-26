@@ -26,6 +26,40 @@ const TAB_LABEL: Record<Tab, string> = { jobs: "Jobs", find: "Find jobs", target
 const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", pasted: "Pasted" } as const;
 const sourceOf = (j: Job) => (j.source ? SOURCE_LABEL[j.source] : "ReadyTalent");
 
+/** Anything that deletes stored data asks you to type "delete" first, like GitHub. Resolves true only then. */
+let askDelete: ((what: string) => Promise<boolean>) | null = null;
+const confirmDelete = (what: string): Promise<boolean> => (askDelete ? askDelete(what) : Promise.resolve(window.confirm(what)));
+
+function DeleteDialog() {
+  const [req, setReq] = useState<{ what: string; done: (ok: boolean) => void } | null>(null);
+  const [typed, setTyped] = useState("");
+  useEffect(() => { askDelete = (what) => new Promise((done) => { setTyped(""); setReq({ what, done }); }); return () => { askDelete = null; }; }, []);
+  if (!req) return null;
+  const close = (ok: boolean) => { req.done(ok); setReq(null); };
+  const ready = typed.trim().toLowerCase() === "delete";
+  return (
+    <div className="modal-back" onClick={() => close(false)}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <b>Are you sure?</b>
+        <p>{req.what}</p>
+        <label>Type <b>delete</b> to confirm</label>
+        <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ready) close(true); if (e.key === "Escape") close(false); }} />
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="ghost" onClick={() => close(false)}>Cancel</button>
+          <button className="danger" disabled={!ready} onClick={() => close(true)}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Trash-can icon for delete buttons. */
+const Trash = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
+  </svg>
+);
+
 /** Every AI action goes through this: nothing calls the AI without a click, and the user is told it costs tokens. */
 function aiConfirm(s: State, what: string): boolean {
   if (s.warnTokens === false) return true;
@@ -59,6 +93,7 @@ export default function App() {
   const appliedJobs = allJobs.filter((j) => state.applied?.[j.id]);
   return (
     <div className="layout">
+      <DeleteDialog />
       <nav className="tabs app-chrome">
         <span className="brand">AutoResume</span>
         {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
@@ -395,7 +430,7 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
           {job.source === "pasted"
             ? <>
                 {job.url && <a className="small" href={job.url} target="_blank" rel="noreferrer">Open posting ↗</a>}
-                <button className="ghost small" onClick={() => { if (confirm(`Delete the pasted posting "${job.title}"? Its tailored resume and letter stay.`)) { update((s) => ({ ...s, pasted: (s.pasted || []).filter((j) => j.id !== job.id), saved: s.saved.filter((i) => i !== job.id) })); back(); } }}>Delete posting</button>
+                <button className="ghost small" onClick={async () => { if (await confirmDelete(`Delete the pasted posting "${job.title}"? Its tailored resume and letter stay.`)) { update((s) => ({ ...s, pasted: (s.pasted || []).filter((j) => j.id !== job.id), saved: s.saved.filter((i) => i !== job.id) })); back(); } }}>Delete posting</button>
               </>
             : job.source
             ? <a className="small" href={job.url} target="_blank" rel="noreferrer">Open on {sourceOf(job)} ↗</a>
@@ -590,7 +625,7 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
           <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={() => void search()}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
           {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
           <button className="ghost small" onClick={() => window.desktop!.showBoardWindow()} title="Shows the hidden browser window, e.g. to complete an Indeed verification yourself">Open Indeed window</button>
-          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (confirm(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); } }}>Clear results</button>}
+          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (await confirmDelete(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); } }}>Clear results</button>}
         </div>
       ) : <div className="small muted">Searching runs on the laptop app. This device shows the stored results.</div>}
       <div className="status">{status}{!busy && /^Done/.test(status) && <> <button className="ghost small" onClick={() => onView()}>View in Jobs</button></>}</div>
@@ -806,6 +841,7 @@ function Settings({ part, state, update }: { part: "settings" | "details"; state
           <input type="file" accept="application/pdf,image/*,.md,.markdown,.txt,text/markdown,text/plain" style={{ display: "none" }} disabled={importing} onChange={async (e) => {
             const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
             const exactTemplate = /\.(md|markdown|txt)$/i.test(f.name) && (await f.text()).trimStart().startsWith(MARKER);
+            if (!(await confirmDelete(`Replace ALL your details with what's in "${f.name}"? Everything you have now is overwritten. (To add to your details instead, use "Update your details" above.)`))) return;
             if (!exactTemplate && !aiConfirm(state, `Read "${f.name}" with the AI and replace your details with what it finds?`)) return;
             setImporting(true); setImportStatus("");
             try { const parsed = await parseResume(aiCfg(state), f); update({ profile: parsed }); setImportStatus(`Imported ${f.name}. Review the fields below.`); }
@@ -857,7 +893,7 @@ function Settings({ part, state, update }: { part: "settings" | "details"; state
       <div className="actions">
         <button className="ghost" onClick={() => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" })); a.download = "autoresume-backup.json"; a.click(); }}>Export backup</button>
         <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>Import backup</span>
-          <input type="file" accept="application/json" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) update(JSON.parse(await f.text())); }} />
+          <input type="file" accept="application/json" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f && await confirmDelete(`Replace everything in AutoResume with the backup "${f.name}"? Your current details, saved jobs and resumes are overwritten.`)) update(JSON.parse(await f.text())); }} />
         </label>
       </div>
       </>)}
@@ -1057,8 +1093,8 @@ function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
             {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
             <button className="ghost" disabled={!!busy} onClick={addTerms} title="Adds these terms to Find jobs → LinkedIn and Indeed">Add terms to Find jobs</button>
             <button className="ghost" disabled={!!busy || !hasKey} title="Uses AI tokens" onClick={() => void write(t.title)}>✦ Regenerate</button>
-            {(t.jobs || []).length > 0 && <button className="ghost" disabled={!!busy} onClick={() => { if (confirm(`Clear the ${(t.jobs || []).length} jobs stored under "${t.title}"? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title === t.title ? { ...x, jobs: [] } : x)) })); setSel(null); } }}>Clear jobs</button>}
-            <button className="ghost" disabled={!!busy} onClick={() => { if (confirm(`Remove "${t.title}" and its ${(t.jobs || []).length} stored jobs? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).filter((x) => x.title !== t.title) })); setSel(null); } }}>Remove title</button>
+            {(t.jobs || []).length > 0 && <button className="ghost" disabled={!!busy} onClick={async () => { if (await confirmDelete(`Clear the ${(t.jobs || []).length} jobs stored under "${t.title}"? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title === t.title ? { ...x, jobs: [] } : x)) })); setSel(null); } }}>Clear jobs</button>}
+            <button className="ghost" disabled={!!busy} onClick={async () => { if (await confirmDelete(`Remove "${t.title}" and its ${(t.jobs || []).length} stored jobs? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).filter((x) => x.title !== t.title) })); setSel(null); } }}>Remove title</button>
           </div>
           <div className="status">{status}</div>
           {err && <div className="status err">{err}</div>}
@@ -1223,7 +1259,7 @@ function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) 
         <div key={si}>
           <div className="row" style={{ marginTop: 26 }}>
             <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
-            <button className="ghost" onClick={() => setP({ sections: p.sections.filter((_, j) => j !== si) })}>Remove section</button>
+            <button className="ghost" onClick={async () => { if (await confirmDelete(`Remove the section "${sec.title || "Untitled"}" and its ${sec.entries.length} entries?`)) setP({ sections: p.sections.filter((_, j) => j !== si) }); }}>Remove section</button>
           </div>
           <EntryList title={sec.title || "Entries"} items={sec.entries} shown={shownCount(p, sectionKey(sec.title), sectionLimit(sec.title))} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
         </div>
@@ -1250,8 +1286,8 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
     onChange(items.map((x, k) => (k === i ? items[j] : k === j ? items[i] : x)));
     setOpen((o) => { const n = new Set(o); const a = o.has(i), b = o.has(j); n.delete(i); n.delete(j); if (a) n.add(j); if (b) n.add(i); return n; });
   };
-  const remove = (i: number) => {
-    if (!confirm(`Delete "${items[i].title || "this entry"}"?`)) return;
+  const remove = async (i: number) => {
+    if (!(await confirmDelete(`Delete "${items[i].title || "this entry"}" from ${title}? Its bullet points are deleted too.`))) return;
     onChange(items.filter((_, j) => j !== i));
     setOpen((o) => new Set([...o].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k))));
   };
@@ -1285,7 +1321,7 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
           <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} rows={Math.min(Math.max(e.details.length + 1, 3), 12)} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })} />
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="ghost small" onClick={() => toggle(i, false)}>Done</button>
-            <button className="ghost small" onClick={() => remove(i)}>Delete</button>
+            <button className="ghost small icon danger-text" title="Delete this entry" aria-label="Delete this entry" onClick={() => void remove(i)}><Trash /></button>
           </div>
         </details>
       ))}
