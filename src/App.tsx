@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { likeScore } from "./ground";
 import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, scrapePosting, useAppState } from "./store";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
-import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
+import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
 const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
 /** "24 Sept 2026, 3:42 pm" for when a tailored resume / letter was generated; "" if unknown (made before timestamps). */
@@ -101,7 +102,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const options = (fromMeta: string[], fromJobs: string[]) => [...new Set([...fromMeta, ...fromJobs.filter(Boolean).sort()])];
   const types = useMemo(() => options(meta.employmentTypes, jobs.map((j) => j.type)), [meta, jobs]);
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
-  const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest">(mode === "applied" ? "applied" : "posted");
+  const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>(mode === "applied" ? "applied" : "posted");
   const [hideExpired, setHideExpired] = useState(true);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [minPay, setMinPay] = useState("");
@@ -176,7 +177,12 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       (!origin || !(near.km > 0) || (distOf(j) ?? Infinity) <= near.km) &&
       (!needle || [j.title, j.company, j.location, j.skills.join(" "), j.description].join(" ").toLowerCase().includes(needle));
     });
-    const cmp: Record<typeof sort, (a: Job, b: Job) => number> = {
+    const target = sort.startsWith("like:") ? (state.targets || [])[Number(sort.slice(5))] : undefined;
+    if (target) {
+      const score = new Map(list.map((j) => [j.id, likeScore(j, target)]));
+      return list.sort((a, b) => (score.get(b.id) || 0) - (score.get(a.id) || 0));
+    }
+    const cmp: Record<string, (a: Job, b: Job) => number> = {
       nearest: (a, b) => (distOf(a) ?? Infinity) - (distOf(b) ?? Infinity),
       posted: (a, b) => (dmy(b.posted) || Date.parse(b.posted) || Date.parse(b.scrapedAt)) - (dmy(a.posted) || Date.parse(a.posted) || Date.parse(a.scrapedAt)),
       applied: (a, b) => (state.applied?.[b.id] || "").localeCompare(state.applied?.[a.id] || ""),
@@ -186,7 +192,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort]);
-  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid]);
+  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets]);
 
   useEffect(() => window.desktop?.onProgress((p) => setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`)), []);
 
@@ -277,6 +283,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
               <option value="title">Title A–Z</option>
               <option value="company">Company A–Z</option>
               {mode === "applied" && <option value="applied">Recently applied</option>}
+              {(state.targets || []).map((t, i) => <option key={i} value={`like:${i}`}>Most like: {t.title}</option>)}
             </select>
             {mode !== "applied" && <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ flex: "1 1 130px", width: "auto" }}>
               <option value="">All ({Object.keys(state.applied || {}).length} applied)</option>
@@ -462,7 +469,7 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
   boardJobs: Job[]; setBoardJobs: (j: Job[]) => void; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
   open: (kind: "resume" | "letter", jobId: string) => void;
 }) {
-  const [busy, setBusy] = useState<"" | "roles" | "terms" | "search">("");
+  const [busy, setBusy] = useState<"" | "roles" | "terms" | "target" | "search">("");
   const [status, setStatus] = useState("");
   const [err, setErr] = useState("");
   const opts = { ...defaultState.boardSearch, ...state.boardSearch };
@@ -481,7 +488,23 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
   const source = () => sourceText(state.profile, state.about || "");
   const hasKey = !!aiCfg(state).key;
 
-  const ai = async (kind: "roles" | "terms", fn: () => Promise<void>) => {
+  const [targetDraft, setTargetDraft] = useState("");
+  const targets = state.targets || [];
+  const makeTarget = (title: string) => ai("target", async () => {
+    const t = await targetRole(aiCfg(state), title, opts.location);
+    update((s) => ({ ...s, targets: [{ title, ...t, at: new Date().toISOString() }, ...(s.targets || []).filter((x) => x.title.toLowerCase() !== title.toLowerCase())] }));
+    setTargetDraft("");
+  });
+  /** Add a target's terms (ticked); with `only`, untick everything else and search just these. */
+  const useTarget = (t: State["targets"][number], only: boolean) => {
+    update((s) => {
+      const have = new Map((s.searchTerms || []).map((x) => [x.term.toLowerCase(), x]));
+      const kept = (s.searchTerms || []).map((x) => ({ ...x, on: t.terms.some((y) => y.toLowerCase() === x.term.toLowerCase()) || (!only && x.on) }));
+      return { ...s, searchTerms: [...kept, ...t.terms.filter((y) => !have.has(y.toLowerCase())).map((term) => ({ term, on: true }))] };
+    });
+    if (only && isDesktop()) void search(t.terms);
+  };
+  const ai = async (kind: "roles" | "terms" | "target", fn: () => Promise<void>) => {
     setBusy(kind); setErr("");
     try { await fn(); } catch (e) { setErr((e as Error).message); }
     setBusy("");
@@ -502,10 +525,10 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
     update((s) => ({ ...s, interests: next, roleSuggestions: (s.roleSuggestions || []).filter((x) => x.toLowerCase() !== r.toLowerCase()) }));
     addTerms(r); // the role itself is a search term straight away
   };
-  const search = async () => {
+  const search = async (list = onTerms) => {
     setBusy("search"); setErr(""); setStatus("Starting search…");
     try {
-      const r = await window.desktop!.searchBoards({ ...opts, terms: onTerms });
+      const r = await window.desktop!.searchBoards({ ...opts, terms: list });
       setBoardJobs(await fetchBoardJobs());
       setStatus(`Done: ${r.found} jobs seen, ${r.added} new, ${r.total} stored.`);
       if (r.errors.length) setErr(r.errors.join(" "));
@@ -523,6 +546,30 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
         {(state.roleSuggestions || []).map((r) => <button key={r} className="chip" onClick={() => addInterest(r)} title="Add to your roles">+ {r}</button>)}
         <button className="ghost small" title="Uses AI tokens" disabled={!hasKey || !!busy} onClick={() => { if (aiConfirm(state, "Ask the AI to suggest roles from your resume?")) void suggest(); }}>✦ {busy === "roles" ? "Thinking…" : (state.roleSuggestions || []).length ? "Suggest again" : "Suggest roles"}</button>
       </div>
+
+      <label>Target a specific job title (the AI writes a typical posting for it, then finds jobs like it)</label>
+      <div className="row">
+        <input value={targetDraft} placeholder="e.g. Forward Deployed Engineer, Technical Business Analyst" onChange={(e) => setTargetDraft(e.target.value)} style={{ flex: 1, minWidth: 220 }}
+          onKeyDown={(e) => { if (e.key === "Enter" && targetDraft.trim() && hasKey && !busy && aiConfirm(state, `Write an example posting and search terms for "${targetDraft.trim()}"?`)) void makeTarget(targetDraft.trim()); }} />
+        <button className="ghost" title="Uses AI tokens" disabled={!hasKey || !!busy || !targetDraft.trim()} onClick={() => { if (aiConfirm(state, `Write an example posting and search terms for "${targetDraft.trim()}"?`)) void makeTarget(targetDraft.trim()); }}>✦ {busy === "target" ? "Writing…" : "Generate posting"}</button>
+      </div>
+      {targets.map((t, i) => (
+        <details key={t.title} className="target">
+          <summary><b>{t.title}</b> <span className="small muted">· {t.terms.length} search terms · sort results by "Most like: {t.title}"</span></summary>
+          <div className="small muted" style={{ marginTop: 6 }}>Example posting written by the AI (typical for this role, not a real job):</div>
+          <pre className="target-posting">{t.posting}</pre>
+          <div className="small muted">Key skills used to rank results:</div>
+          <div className="chips">{t.keywords.map((k) => <span key={k} className="chip">{k}</span>)}</div>
+          <div className="small muted" style={{ marginTop: 6 }}>Search terms (click one to add it):</div>
+          <div className="chips">{t.terms.map((x) => <button key={x} className={`chip ${terms.some((y) => y.term.toLowerCase() === x.toLowerCase() && y.on) ? "hit" : ""}`} onClick={() => addTerms(x)}>+ {x}</button>)}</div>
+          <div className="row" style={{ marginTop: 6 }}>
+            {isDesktop() && <button disabled={!!busy} onClick={() => useTarget(t, true)}>Search jobs like this</button>}
+            <button className="ghost" disabled={!!busy} onClick={() => useTarget(t, false)}>Add all terms</button>
+            <button className="ghost" disabled={!!busy} title="Uses AI tokens" onClick={() => { if (aiConfirm(state, `Rewrite the example posting and terms for "${t.title}"?`)) void makeTarget(t.title); }}>✦ Regenerate</button>
+            <button className="ghost" onClick={() => update((s) => ({ ...s, targets: (s.targets || []).filter((_, j) => j !== i) }))}>Remove</button>
+          </div>
+        </details>
+      ))}
 
       <label>Search terms (click to tick or untick; only ticked terms are searched)</label>
       <div className="chips">
@@ -576,7 +623,7 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
       </div>
       {isDesktop() ? (
         <div className="row">
-          <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={search}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
+          <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={() => void search()}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
           {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
           <button className="ghost small" onClick={() => window.desktop!.showBoardWindow()} title="Shows the hidden browser window, e.g. to complete an Indeed verification yourself">Open Indeed window</button>
           {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (confirm(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); setSel(null); } }}>Clear results</button>}

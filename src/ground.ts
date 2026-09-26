@@ -1,4 +1,4 @@
-import type { Entry, Profile } from "./types";
+import type { Entry, Job, Profile } from "./types";
 import { sectionKey } from "./limits.ts";
 
 /**
@@ -147,4 +147,14 @@ export function applySkillPrefs(p: Profile, prefs: { include: string[]; omit: st
   const missing = prefs.include.filter((k) => k.trim() && !omitted(k) && !inSource(k, text));
   const rest = skills.slice(shownSkills.length).filter((s) => !missing.some((m) => norm(m) === norm(s)));
   return { ...p, skills: [...shownSkills, ...missing, ...rest], additional, show: { ...(p.show || {}), skills: shownSkills.length + missing.length } };
+}
+
+/** How much a job looks like a target title: share of the target's keywords (and title words) found in the job, plus title overlap. */
+export function likeScore(job: Job, t: { title: string; keywords: string[] }): number {
+  const text = [job.title, (job.skills || []).join(", "), job.requirements, job.description].join("\n");
+  const words = t.title.split(/\s+/).filter((w) => w.length > 2);
+  const keys = [...t.keywords, ...words];
+  if (!keys.length) return 0;
+  const inTitle = words.filter((w) => inSource(w, job.title)).length / Math.max(words.length, 1);
+  return keys.filter((k) => inSource(k, text)).length / keys.length + inTitle;
 }

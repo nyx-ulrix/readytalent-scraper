@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.3-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.3-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.3-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.4-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.4-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.4-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,10 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.4
+
+- **Target a specific job title.** On the Search tab, type a title (e.g. "Forward Deployed Engineer") and press ✦ Generate posting: the AI writes a typical posting for the role (clearly marked as an example), plus targeted search terms, including other titles employers use for the same work, and the role's key skills. **Search jobs like this** runs just those terms, and the new sort **Most like: <title>** ranks every job by how closely it matches.
 
 ## What's new in 1.2.3
 

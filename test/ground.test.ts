@@ -98,3 +98,15 @@ const dup = groundProfile(orig, { skills: ["React", "Teamwork", "Mandarin"], add
 assert.deepEqual(visible(dup).skills, ["React"]);
 assert.deepEqual(dup.skills, ["React", "Python"], "your other skills stay stored");
 console.log("ground self-check OK");
+
+// "Most like" sort for a target title: closer matches score higher.
+{
+  const { likeScore } = await import("../src/ground.ts");
+  const t = { title: "Forward Deployed Engineer", keywords: ["Python", "APIs", "customer", "deployment"] };
+  const job = (title: string, description: string) => ({ id: title, title, description, skills: [], requirements: "" }) as unknown as Parameters<typeof likeScore>[0];
+  const fde = likeScore(job("Forward Deployed Engineer", "Work with customer teams on deployment of Python APIs."), t);
+  const se = likeScore(job("Solutions Engineer", "Customer deployment of Python services and APIs."), t);
+  const chef = likeScore(job("Line Cook", "Prepare meals."), t);
+  assert.ok(fde > se && se > chef, `${fde} > ${se} > ${chef}`);
+  assert.equal(chef, 0);
+}

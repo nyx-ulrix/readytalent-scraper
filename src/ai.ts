@@ -417,6 +417,21 @@ ${source}`, "You are a career coach who knows how jobs are titled on LinkedIn an
   return listFrom(out, "roles").filter((r) => !have.has(r.toLowerCase()));
 }
 
+/**
+ * A specific job title the user wants: a typical posting for it (what such jobs ask for), the search queries
+ * that find it and its near-identical roles, and the distinctive keywords used to rank results by similarity.
+ */
+export async function targetRole(cfg: AiConfig, title: string, location: string): Promise<{ posting: string; terms: string[]; keywords: string[] }> {
+  const out = await ai(cfg, `The candidate wants jobs as: "${title}"${location ? ` (in ${location})` : ""}.
+1. Write a realistic, typical job posting for exactly this role as employers there usually advertise it: a one-line overview, "Responsibilities" (5-7 bullets), "Requirements" (5-7 bullets: skills, tools, qualifications, experience level) and "Nice to have" (2-3 bullets). Plain text, no company name, no salary.
+2. Write 10-12 job-board search queries (2-4 words each) that find this role and jobs that are really the same work: the exact title, the other titles employers use for it (e.g. "Solutions Engineer" for "Forward Deployed Engineer"), and title + core skill combinations. Keep them specific to this role, not generic.
+3. List 15-25 distinctive keywords of this role (tools, skills, domain terms, typical title words) that a matching posting would contain. Short names only.
+Return JSON: {"posting": string, "terms": [string, ...], "keywords": [string, ...]}.`, "You know how jobs are advertised on LinkedIn and Indeed and which titles mean the same work.", true);
+  const p = JSON.parse(out) as { posting?: unknown; terms?: unknown; keywords?: unknown };
+  const list = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(String).map((x) => x.trim()).filter(Boolean))] : []);
+  return { posting: typeof p.posting === "string" ? p.posting.trim() : "", terms: list(p.terms), keywords: list(p.keywords) };
+}
+
 /** Short LinkedIn / Indeed queries built from the roles the user wants plus their resume. */
 export async function generateSearchTerms(cfg: AiConfig, source: string, interests: string[], existing: string[]): Promise<string[]> {
   const out = await ai(cfg, `Write 12 job-board search queries (2-4 words each) for LinkedIn and Indeed.
