@@ -110,7 +110,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const options = (fromMeta: string[], fromJobs: string[]) => [...new Set([...fromMeta, ...fromJobs.filter(Boolean).sort()])];
   const types = useMemo(() => options(meta.employmentTypes, jobs.map((j) => j.type)), [meta, jobs]);
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
-  const [sort, setSort] = keep<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>("sort", mode === "applied" ? "applied" : "posted");
+  const [sort, setSort] = keep<"posted" | "fetched" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>("sort", mode === "applied" ? "applied" : "posted");
   const [hideExpired, setHideExpired] = keep("hideExpired", true);
   const [filtersOpen, setFiltersOpen] = keep("filtersOpen", false);
   const [minPay, setMinPay] = keep("minPay", "");
@@ -194,6 +194,8 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       nearest: (a, b) => (distOf(a) ?? Infinity) - (distOf(b) ?? Infinity),
       posted: (a, b) => (dmy(b.posted) || Date.parse(b.posted) || Date.parse(b.scrapedAt)) - (dmy(a.posted) || Date.parse(a.posted) || Date.parse(a.scrapedAt)),
       applied: (a, b) => (state.applied?.[b.id] || "").localeCompare(state.applied?.[a.id] || ""),
+      // When this app last fetched the job (a later search that sees it again counts).
+      fetched: (a, b) => (Date.parse(b.lastSeen || b.scrapedAt) || 0) - (Date.parse(a.lastSeen || a.scrapedAt) || 0),
       deadline: (a, b) => (dmy(a.deadline) || Infinity) - (dmy(b.deadline) || Infinity),
       salary: (a, b) => salaryNum(b.salary) - salaryNum(a.salary),
       title: (a, b) => a.title.localeCompare(b.title),
@@ -287,6 +289,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           <div className="row">
             <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} style={{ flex: "1 1 150px" }}>
               <option value="posted">Newest first</option>
+              <option value="fetched">Recently fetched</option>
               {origin && <option value="nearest">Nearest first</option>}
               <option value="deadline">Closing soonest</option>
               <option value="salary">Salary: high to low</option>

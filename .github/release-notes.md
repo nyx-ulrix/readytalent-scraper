@@ -31,6 +31,7 @@ Allow incoming connections when asked if you want to use AutoResume from a table
 - **Update your details (Settings).** Add what's new from a newer resume, your portfolio or LinkedIn page, or pasted text. Nothing you already have is removed or reworded: new jobs, projects, bullet points and skills are added below yours, rewordings of bullets you already have are skipped, and **Undo** puts everything back.
 - **Targets tab.** Jobs found with **Search jobs like this** are kept under that job title, with their full details, and you pick the title from a dropdown.
 - **Filters are remembered.** Each job list keeps its filters, search text and sort between sessions.
+- **Sort by Recently fetched**: the jobs the app scraped most recently first.
 - **Loading bars** while scraping ReadyTalent, searching LinkedIn/Indeed and reading a pasted link.
 - **Tidier Search panel.** Search terms sit in fold-away **Ticked** and **Unticked** groups.
 
