@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.7-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.7-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.7-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.8-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.8-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.8-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,18 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.8
+
+- **Details tab.** Your resume content (details, update from a resume or link, ranking, "Only if very relevant") now has its own tab; Settings keeps just the app settings.
+- **Targets tab, always there.** Type a specific job title, press ✦ Generate posting, then **Search jobs like this**; the jobs found are kept under that title with full details, and you switch titles from a dropdown.
+- **Clearer tailoring rules** (you chose these when conflicts were found):
+  - entries relevant enough to the job are picked in your ranking order;
+  - substantial work still beats coursework and practice projects, and completed roles beat upcoming ones, even over your ranking;
+  - jobs and education are always kept ("Only if very relevant" applies to projects and other sections);
+  - skills you confirmed lead the skills line within the 18-skill limit;
+  - the 380-480 word limit wins over bullet counts;
+  - a hackathon and the project built at it are shown once, as the hackathon entry with the project's key tools and bullet merged in, so its ATS keywords stay.
 
 ## What's new in 1.2.7
 

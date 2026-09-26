@@ -33,7 +33,8 @@ function normalize(s: State | null): State {
 }
 
 type Patch = Partial<State> | ((s: State) => State);
-const apply = (s: State, p: Patch): State => (typeof p === "function" ? p(s) : { ...s, ...p });
+/** Apply a change; an imported backup's old `_rev` is ignored so it can't make the save look stale forever. */
+const apply = (s: State, p: Patch): State => (typeof p === "function" ? p(s) : { ...s, ...p, _rev: s._rev });
 
 /**
  * State lives on the laptop (state.json) and is cached in localStorage on every device (laptop window, tablet, phone).
@@ -64,7 +65,7 @@ export function useAppState(): [State, (patch: Patch) => void, boolean] {
       }
       if (r.status === 409) {
         const latest = await fetchState(5000);
-        if (latest) { put(pending.current.reduce(apply, normalize(latest))); return flush(); }
+        if (latest) { put({ ...pending.current.reduce(apply, normalize(latest)), _rev: latest._rev }); return flush(); }
       }
     } catch { /* laptop unreachable: keep the changes */ }
     schedule(5000);

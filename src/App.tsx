@@ -18,11 +18,11 @@ import { monthlyPay, payPasses } from "./pay";
 import { MAX_PROJECTS, MAX_SKILLS, isLeadership, sectionKey, sectionLimit, shownCount } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
-type Tab = "jobs" | "find" | "targets" | "saved" | "applied" | "resume" | "settings";
+type Tab = "jobs" | "find" | "targets" | "saved" | "applied" | "resume" | "details" | "settings";
 type ListMode = "all" | "targets" | "saved" | "applied";
 type Update = (patch: Partial<State> | ((s: State) => State)) => void;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
-const TAB_LABEL: Record<Tab, string> = { jobs: "Jobs", find: "Find jobs", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
+const TAB_LABEL: Record<Tab, string> = { jobs: "Jobs", find: "Find jobs", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", details: "Details", settings: "Settings" };
 const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", pasted: "Pasted" } as const;
 const sourceOf = (j: Job) => (j.source ? SOURCE_LABEL[j.source] : "ReadyTalent");
 
@@ -61,9 +61,9 @@ export default function App() {
     <div className="layout">
       <nav className="tabs app-chrome">
         <span className="brand">AutoResume</span>
-        {(Object.keys(TAB_LABEL) as Tab[]).filter((t) => t !== "targets" || targetJobs > 0).map((t) => (
+        {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
           <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-            {TAB_LABEL[t]}{t === "targets" ? ` (${targetJobs})` : ""}{t === "saved" && savedJobs.length ? ` (${savedJobs.length})` : ""}{t === "applied" && appliedJobs.length ? ` (${appliedJobs.length})` : ""}
+            {TAB_LABEL[t]}{t === "targets" && targetJobs ? ` (${targetJobs})` : ""}{t === "saved" && savedJobs.length ? ` (${savedJobs.length})` : ""}{t === "applied" && appliedJobs.length ? ` (${appliedJobs.length})` : ""}
           </button>
         ))}
       </nav>
@@ -71,11 +71,12 @@ export default function App() {
         {tab === "jobs" && <Jobs mode="all" jobs={allJobs} {...common} {...selFor("jobs")} />}
         {tab === "find" && <FindPage jobs={jobs} setJobs={setJobs} boardJobs={boardJobs} setBoardJobs={setBoardJobs} state={state} update={update}
           onView={(j) => { if (j) selFor("jobs").setSel(j); setTab("jobs"); }} />}
-        {tab === "targets" && <TargetsPage {...common} {...selFor("targets")} />}
+        {tab === "targets" && <TargetsPage setBoardJobs={setBoardJobs} {...common} {...selFor("targets")} />}
         {tab === "saved" && <Jobs mode="saved" jobs={savedJobs} {...common} {...selFor("saved")} />}
         {tab === "applied" && <Jobs mode="applied" jobs={appliedJobs} {...common} {...selFor("applied")} />}
         {tab === "resume" && <ResumeTab state={state} update={update} jobs={allJobs} doc={doc} setDoc={setDoc} />}
-        {tab === "settings" && <Settings state={state} update={update} />}
+        {tab === "details" && <Settings part="details" state={state} update={update} />}
+        {tab === "settings" && <Settings part="settings" state={state} update={update} />}
       </main>
     </div>
   );
@@ -478,22 +479,6 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
   const source = () => sourceText(state.profile, state.about || "");
   const hasKey = !!aiCfg(state).key;
 
-  const [targetDraft, setTargetDraft] = useState("");
-  const targets = state.targets || [];
-  const makeTarget = (title: string) => ai("target", async () => {
-    const t = await targetRole(aiCfg(state), title, opts.location);
-    update((s) => ({ ...s, targets: [{ title, ...t, at: new Date().toISOString() }, ...(s.targets || []).filter((x) => x.title.toLowerCase() !== title.toLowerCase())] }));
-    setTargetDraft("");
-  });
-  /** Add a target's terms (ticked); with `only`, untick everything else and search just these. */
-  const useTarget = (t: State["targets"][number], only: boolean) => {
-    update((s) => {
-      const have = new Map((s.searchTerms || []).map((x) => [x.term.toLowerCase(), x]));
-      const kept = (s.searchTerms || []).map((x) => ({ ...x, on: t.terms.some((y) => y.toLowerCase() === x.term.toLowerCase()) || (!only && x.on) }));
-      return { ...s, searchTerms: [...kept, ...t.terms.filter((y) => !have.has(y.toLowerCase())).map((term) => ({ term, on: true }))] };
-    });
-    if (only && isDesktop()) void search(t.terms, t.title);
-  };
   const ai = async (kind: "roles" | "terms" | "target", fn: () => Promise<void>) => {
     setBusy(kind); setErr("");
     try { await fn(); } catch (e) { setErr((e as Error).message); }
@@ -515,17 +500,12 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
     update((s) => ({ ...s, interests: next, roleSuggestions: (s.roleSuggestions || []).filter((x) => x.toLowerCase() !== r.toLowerCase()) }));
     addTerms(r); // the role itself is a search term straight away
   };
-  /** With `target`, the jobs this search finds are also kept (with their details) under that title in the Targets tab. */
-  const search = async (list = onTerms, target?: string) => {
+  const search = async (list = onTerms) => {
     setBusy("search"); setErr(""); setStatus("Starting search…");
     try {
       const r = await window.desktop!.searchBoards({ ...opts, terms: list });
       const fresh = await fetchBoardJobs();
       setBoardJobs(fresh);
-      if (target && r.ids) {
-        const hits = fresh.filter((j) => r.ids!.includes(j.id));
-        update((s) => ({ ...s, targets: (s.targets || []).map((t) => (t.title !== target ? t : { ...t, jobs: [...hits, ...(t.jobs || []).filter((j) => !r.ids!.includes(j.id))] })) }));
-      }
       setStatus(`Done: ${r.found} jobs seen, ${r.added} new, ${r.total} stored.`);
       if (r.errors.length) setErr(r.errors.join(" "));
     } catch (e) { setErr((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); setStatus(""); }
@@ -543,29 +523,7 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
         <button className="ghost small" title="Uses AI tokens" disabled={!hasKey || !!busy} onClick={() => { if (aiConfirm(state, "Ask the AI to suggest roles from your resume?")) void suggest(); }}>✦ {busy === "roles" ? "Thinking…" : (state.roleSuggestions || []).length ? "Suggest again" : "Suggest roles"}</button>
       </div>
 
-      <label>Target a specific job title (the AI writes a typical posting for it, then finds jobs like it)</label>
-      <div className="row">
-        <input value={targetDraft} placeholder="e.g. Forward Deployed Engineer, Technical Business Analyst" onChange={(e) => setTargetDraft(e.target.value)} style={{ flex: 1, minWidth: 220 }}
-          onKeyDown={(e) => { if (e.key === "Enter" && targetDraft.trim() && hasKey && !busy && aiConfirm(state, `Write an example posting and search terms for "${targetDraft.trim()}"?`)) void makeTarget(targetDraft.trim()); }} />
-        <button className="ghost" title="Uses AI tokens" disabled={!hasKey || !!busy || !targetDraft.trim()} onClick={() => { if (aiConfirm(state, `Write an example posting and search terms for "${targetDraft.trim()}"?`)) void makeTarget(targetDraft.trim()); }}>✦ {busy === "target" ? "Writing…" : "Generate posting"}</button>
-      </div>
-      {targets.map((t, i) => (
-        <details key={t.title} className="target">
-          <summary><b>{t.title}</b> <span className="small muted">· {t.terms.length} search terms · sort results by "Most like: {t.title}"</span></summary>
-          <div className="small muted" style={{ marginTop: 6 }}>Example posting written by the AI (typical for this role, not a real job):</div>
-          <pre className="target-posting">{t.posting}</pre>
-          <div className="small muted">Key skills used to rank results:</div>
-          <div className="chips">{t.keywords.map((k) => <span key={k} className="chip">{k}</span>)}</div>
-          <div className="small muted" style={{ marginTop: 6 }}>Search terms (click one to add it):</div>
-          <div className="chips">{t.terms.map((x) => <button key={x} className={`chip ${terms.some((y) => y.term.toLowerCase() === x.toLowerCase() && y.on) ? "hit" : ""}`} onClick={() => addTerms(x)}>+ {x}</button>)}</div>
-          <div className="row" style={{ marginTop: 6 }}>
-            {isDesktop() && <button disabled={!!busy} onClick={() => useTarget(t, true)}>Search jobs like this</button>}
-            <button className="ghost" disabled={!!busy} onClick={() => useTarget(t, false)}>Add all terms</button>
-            <button className="ghost" disabled={!!busy} title="Uses AI tokens" onClick={() => { if (aiConfirm(state, `Rewrite the example posting and terms for "${t.title}"?`)) void makeTarget(t.title); }}>✦ Regenerate</button>
-            <button className="ghost" onClick={() => update((s) => ({ ...s, targets: (s.targets || []).filter((_, j) => j !== i) }))}>Remove</button>
-          </div>
-        </details>
-      ))}
+      <div className="small muted" style={{ marginTop: 10 }}>Looking for one specific job title? Use the <b>Targets</b> tab: the AI writes an example posting and searches for jobs like it.</div>
 
       <label>Search terms (click to tick or untick; only ticked terms are searched)</label>
       {([[true, "Ticked (searched)"], [false, "Unticked"]] as const).map(([on, label]) => {
@@ -779,7 +737,8 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
 
 /* ---------------- Settings ---------------- */
 
-function Settings({ state, update }: { state: State; update: Update }) {
+/** Settings (AI, preferences, sign-in, devices, data) and, with part="details", the Details tab (your resume content). */
+function Settings({ part, state, update }: { part: "settings" | "details"; state: State; update: Update }) {
   const p = state.profile;
   const setP = (patch: Partial<Profile>) => update({ profile: { ...p, ...patch } });
   const [lan, setLan] = useState<string[]>([]);
@@ -804,6 +763,7 @@ function Settings({ state, update }: { state: State; update: Update }) {
   );
   return (
     <div className="settings app-chrome">
+      {part === "settings" && (<>
       <h2>AI</h2>
       <label>Provider used for keywords, resumes, cover letters and resume import</label>
       <select value={state.provider} onChange={(e) => update({ provider: e.target.value as Provider })}>
@@ -836,6 +796,8 @@ function Settings({ state, update }: { state: State; update: Update }) {
           </select></div>
       </div>
 
+      </>)}
+      {part === "details" && (<>
       <h2>Your details</h2>
       <UpdateDetails state={state} update={update} />
       <div className="small muted" style={{ marginTop: 12 }}>Or start over from a resume (PDF, photo or Markdown .md; the AI reads and OCRs it): this replaces the details below.</div>
@@ -879,6 +841,8 @@ function Settings({ state, update }: { state: State; update: Update }) {
       <ProfileBody p={p} setP={setP} />
       <label>More about you, for the AI only (languages such as Mandarin / Chinese, soft skills, achievements). Resumes and letters may only state facts from your resume and this box.</label>
       <textarea value={state.about || ""} rows={4} placeholder={"e.g. Fluent in English and Mandarin (Chinese). Strong at teamwork, communication and problem solving."} onChange={(e) => update({ about: e.target.value })} />
+      </>)}
+      {part === "settings" && (<>
 
       {isDesktop() && (
         <>
@@ -896,6 +860,7 @@ function Settings({ state, update }: { state: State; update: Update }) {
           <input type="file" accept="application/json" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) update(JSON.parse(await f.text())); }} />
         </label>
       </div>
+      </>)}
     </div>
   );
 }
@@ -1014,21 +979,94 @@ function ModelPicker({ state, update }: { state: State; update: Update }) {
   );
 }
 
-/** Jobs found with "Search jobs like this", grouped by target job title (pick one from the dropdown). */
-function TargetsPage({ state, update, sel, setSel, open }: { state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void; open: (kind: "resume" | "letter", jobId: string) => void }) {
-  const withJobs = (state.targets || []).filter((t) => (t.jobs || []).length);
-  const [pick, setPick] = useState(withJobs[0]?.title || "");
-  const t = withJobs.find((x) => x.title === pick) || withJobs[0];
+/**
+ * Targets: type a specific job title, the AI writes a typical posting and targeted search terms, "Search jobs like
+ * this" searches LinkedIn / Indeed for them, and the jobs found are kept (with full details) under that title.
+ */
+function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
+  state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void; open: (kind: "resume" | "letter", jobId: string) => void; setBoardJobs: (j: Job[]) => void;
+}) {
+  const targets = state.targets || [];
+  const [pick, setPick] = useState(targets[0]?.title || "");
+  const t = targets.find((x) => x.title === pick) || targets[0];
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState<"" | "write" | "search">("");
+  const [status, setStatus] = useState("");
+  const [err, setErr] = useState("");
+  const hasKey = !!aiCfg(state).key;
+  const opts = { ...defaultState.boardSearch, ...state.boardSearch };
+  useEffect(() => (busy === "search" ? window.desktop?.onBoardsProgress((p) => setStatus(p.msg)) : undefined), [busy]);
+  const write = async (title: string) => {
+    if (!aiConfirm(state, `Write an example posting and search terms for "${title}"?`)) return;
+    setBusy("write"); setErr(""); setStatus("");
+    try {
+      const made = await targetRole(aiCfg(state), title, opts.location);
+      update((s) => ({ ...s, targets: [{ title, ...made, at: new Date().toISOString(), jobs: (s.targets || []).find((x) => x.title.toLowerCase() === title.toLowerCase())?.jobs || [] }, ...(s.targets || []).filter((x) => x.title.toLowerCase() !== title.toLowerCase())] }));
+      setPick(title); setDraft("");
+    } catch (e) { setErr((e as Error).message); }
+    setBusy("");
+  };
+  const search = async () => {
+    if (!t) return;
+    setBusy("search"); setErr(""); setStatus("Starting search…");
+    try {
+      const r = await window.desktop!.searchBoards({ ...opts, terms: t.terms });
+      const fresh = await fetchBoardJobs();
+      setBoardJobs(fresh);
+      const ids = r.ids || [];
+      const hits = fresh.filter((j) => ids.includes(j.id));
+      update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title !== t.title ? x : { ...x, jobs: [...hits, ...(x.jobs || []).filter((j) => !ids.includes(j.id))] })) }));
+      setStatus(`Done: ${hits.length} jobs found for "${t.title}".`);
+      if (r.errors.length) setErr(r.errors.join(" "));
+    } catch (e) { setErr((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); setStatus(""); }
+    setBusy("");
+  };
+  /** Add this title's terms (ticked) to the search terms on Find jobs. */
+  const addTerms = () => update((s) => {
+    const have = new Set((s.searchTerms || []).map((x) => x.term.toLowerCase()));
+    return { ...s, searchTerms: [...(s.searchTerms || []), ...t!.terms.filter((y) => !have.has(y.toLowerCase())).map((term) => ({ term, on: true }))] };
+  });
   const header = (
     <div className="search-panel app-chrome">
-      <div className="row" style={{ alignItems: "center" }}>
-        <b>Job title</b>
-        <select value={t?.title || ""} onChange={(e) => { setPick(e.target.value); setSel(null); }} style={{ flex: 1, minWidth: 200 }}>
-          {withJobs.map((x) => <option key={x.title} value={x.title}>{x.title} ({(x.jobs || []).length})</option>)}
-        </select>
-        {t && <button className="ghost small" onClick={() => { if (confirm(`Clear the ${(t.jobs || []).length} jobs stored under "${t.title}"? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title === t.title ? { ...x, jobs: [] } : x)) })); setSel(null); } }}>Clear this list</button>}
+      <div className="row">
+        <input value={draft} placeholder="Type a specific job title, e.g. Forward Deployed Engineer" onChange={(e) => setDraft(e.target.value)} style={{ flex: 1, minWidth: 220 }}
+          onKeyDown={(e) => { if (e.key === "Enter" && draft.trim() && hasKey && !busy) void write(draft.trim()); }} />
+        <button disabled={!hasKey || !!busy || !draft.trim()} title="Uses AI tokens" onClick={() => void write(draft.trim())}>✦ {busy === "write" ? "Writing…" : "Generate posting"}</button>
       </div>
-      <div className="small muted">Jobs found with "Search jobs like this" for each title, kept with their full details. Sort by "Most like: {t?.title}" to see the closest matches first.</div>
+      {!hasKey && <div className="small muted">Add an AI key in Settings to generate postings.</div>}
+      {targets.length > 0 && t && (
+        <>
+          <div className="row" style={{ marginTop: 8, alignItems: "center" }}>
+            <b>Job title</b>
+            <select value={t.title} onChange={(e) => { setPick(e.target.value); setSel(null); setStatus(""); }} style={{ flex: 1, minWidth: 200 }}>
+              {targets.map((x) => <option key={x.title} value={x.title}>{x.title} ({(x.jobs || []).length} jobs)</option>)}
+            </select>
+          </div>
+          <details className="target">
+            <summary>Example posting, key skills and {t.terms.length} search terms</summary>
+            <div className="small muted" style={{ marginTop: 6 }}>Written by the AI (typical for this role, not a real job):</div>
+            <pre className="target-posting">{t.posting}</pre>
+            <div className="small muted">Key skills (used by the "Most like" sort):</div>
+            <div className="chips">{t.keywords.map((k) => <span key={k} className="chip">{k}</span>)}</div>
+            <div className="small muted" style={{ marginTop: 6 }}>Search terms:</div>
+            <div className="chips">{t.terms.map((x) => <span key={x} className="chip">{x}</span>)}</div>
+          </details>
+          {busy === "search" && <progress className="loading" />}
+          <div className="row" style={{ marginTop: 8 }}>
+            {isDesktop() ? <button disabled={!!busy} onClick={() => void search()}>{busy === "search" ? "Searching…" : "Search jobs like this"}</button> : <span className="small muted">Searching runs on the laptop app.</span>}
+            {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
+            <button className="ghost" disabled={!!busy} onClick={addTerms} title="Adds these terms to Find jobs → LinkedIn and Indeed">Add terms to Find jobs</button>
+            <button className="ghost" disabled={!!busy || !hasKey} title="Uses AI tokens" onClick={() => void write(t.title)}>✦ Regenerate</button>
+            {(t.jobs || []).length > 0 && <button className="ghost" disabled={!!busy} onClick={() => { if (confirm(`Clear the ${(t.jobs || []).length} jobs stored under "${t.title}"? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title === t.title ? { ...x, jobs: [] } : x)) })); setSel(null); } }}>Clear jobs</button>}
+            <button className="ghost" disabled={!!busy} onClick={() => { if (confirm(`Remove "${t.title}" and its ${(t.jobs || []).length} stored jobs? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).filter((x) => x.title !== t.title) })); setSel(null); } }}>Remove title</button>
+          </div>
+          <div className="status">{status}</div>
+          {err && <div className="status err">{err}</div>}
+          <div className="small muted">Sort by "Most like: {t.title}" in Filters &amp; sort to see the closest matches first.</div>
+        </>
+      )}
+      {busy === "write" && <progress className="loading" />}
+      {!t && err && <div className="status err">{err}</div>}
     </div>
   );
   return (
@@ -1217,9 +1255,9 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
             {i < items.length - 1 && <button className="ghost" title="Rank lower" onClick={() => onChange(items.map((x, j) => (j === i + 1 ? items[i] : j === i ? items[i + 1] : x)))}>↓</button>}
             <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>
-          <label className="only-if" title="For things you don't find impressive: tailored resumes use it only when it closely matches the job, and your base resume leaves it out.">
+          {title !== "Experience" && title !== "Education" && <label className="only-if" title="For things you don't find impressive: tailored resumes use it only when it closely matches the job, and your base resume leaves it out.">
             <input type="checkbox" checked={!!e.onlyIfVeryRelevant} onChange={(ev) => set(i, { onlyIfVeryRelevant: ev.target.checked || undefined })} /> Only if very relevant (not one I'd showcase)
-          </label>
+          </label>}
           <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
         </div>
       ))}

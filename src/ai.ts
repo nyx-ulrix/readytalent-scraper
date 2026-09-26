@@ -283,7 +283,7 @@ ${draft}`, SYSTEM, json);
 }
 
 export type SkillPrefs = { include: string[]; omit: string[] };
-const prefsText = (p?: SkillPrefs) => (p ? `${p.include.length ? `\nThe candidate confirmed they have these skills; include every one of them: ${JSON.stringify(p.include)}` : ""}${p.omit.length ? `\nThe candidate asked to leave these out; do not mention them anywhere: ${JSON.stringify(p.omit)}` : ""}` : "");
+const prefsText = (p?: SkillPrefs) => (p ? `${p.include.length ? `\nThe candidate confirmed they have these skills; list them first on the skills line (within the 18): ${JSON.stringify(p.include)}` : ""}${p.omit.length ? `\nThe candidate asked to leave these out; do not mention them anywhere: ${JSON.stringify(p.omit)}` : ""}` : "");
 /** Confirmed skills count as facts the candidate stated. */
 const withConfirmed = (notes: string, p?: SkillPrefs) => (p?.include.length ? `${notes}\nSkills I confirm I have: ${p.include.join(", ")}` : notes);
 
@@ -296,26 +296,28 @@ For every entry you keep, copy its title, org, location and dates exactly. List 
 
 SELECT (what appears)
 - Education and work experience: keep every entry.
-- Projects: at most ${MAX_PROJECTS}, the ones that best prove this job's core requirements, most relevant first. Prefer substantial, role-relevant work over coursework and small practice projects.
-- Leadership / co-curricular: at most ${MAX_LEADERSHIP}, most relevant first; prefer completed roles over upcoming ones.
-- The candidate listed every list (projects, experience, leadership and other sections) in their own ranking: first = what they most want to showcase. Among entries that are relevant enough to this job, choose the candidate's higher-ranked ones; put a lower-ranked entry ahead only when it is clearly more relevant.
-- Entries with "onlyIfVeryRelevant": true are ones the candidate does not find impressive. Leave them out unless they are very closely relevant to this job's core requirements (a near-direct match that no higher-ranked entry covers).
-- Other extra sections (e.g. hackathons): keep an entry only if it adds something not already shown. If a hackathon's project is already listed under Projects, drop the hackathon entry; return the section with an empty "entries" list if nothing is left.
+- Projects: at most ${MAX_PROJECTS}. Leadership / co-curricular: at most ${MAX_LEADERSHIP}.
+- Choose and order projects, leadership and other sections in this priority:
+  1. Relevance gate: only entries relevant enough to this job's requirements are candidates.
+  2. Built-in rules, which apply even over the candidate's ranking: substantial, role-relevant work beats coursework, module assignments and small practice projects; completed roles beat upcoming ones.
+  3. The candidate's ranking: every list is in the candidate's own order, first = what they most want to showcase. Among the remaining candidates, pick and order by that ranking; put a lower-ranked entry ahead only when it is clearly more relevant.
+- Projects and extra-section entries with "onlyIfVeryRelevant": true are ones the candidate does not find impressive: leave them out unless they are a near-direct match for this job's core requirements that no other entry covers.
+- Hackathons: when a project was built at a hackathon listed in another section, show that work once, as the hackathon entry: merge the project's most job-relevant bullet and tools into the hackathon entry (keeping its ATS keywords) and leave the duplicate project out of Projects. Keep other extra-section entries only if they add something not already shown; return a section with an empty "entries" list if nothing is left.
 
 WRITE (how it reads)
 - summary: 2 sentences, 35-55 words. Open with who they are and the role type they are applying for, then their 2-3 strongest pieces of evidence for this job. No list of technologies, no generic claims ("passionate", "proven", "strong foundation"), no mention of interests.
-- Bullets: education 0-1 (relevant coursework only), work experience 2-3, projects 2-3, leadership 1-2. Each bullet is one line or a little more: strong verb + what was built or done + how (the tools that matter for this job) + result, but only a result the source states. Lead each entry with its most job-relevant bullet.
+- Bullets: education 0-1 (relevant coursework only), work experience 2-3, projects 2-3, leadership 1-2. The word limit under FIT wins: if these would go over it, write fewer bullets, down to the minimums. Each bullet is one line or a little more: strong verb + what was built or done + how (the tools that matter for this job) + result, but only a result the source states. Lead each entry with its most job-relevant bullet.
 - Reframe, don't invent: for business-analyst roles stress requirements, stakeholders, documentation and data quality; for engineering roles stress design, integration, testing and debugging; for performance roles stress measurement and benchmarking methodology; for data/security roles stress data validation, access control, audit and credential handling. Use only what the source supports.
 - Tone down claims the source does not back with evidence: avoid "zero-downtime", "secure", "production-ready", "high-quality", "near-optimal", "optimised", "robust" unless the source gives a measurement or mechanism; describe the mechanism instead (e.g. "deploys behind a Caddy reverse proxy with rollbacks").
 - Name a soft skill only where a stated fact shows it (e.g. coordinating design, QA and localisation teams -> cross-functional communication). Aim to show 3-5 relevant soft skills across the page.
 
 SKILLS
-- skills: the 12-18 technical skills most relevant to this job, most relevant first, only from the source. No soft skills, languages or job-description phrases here.
+- skills: the 12-18 technical skills most relevant to this job, most relevant first, only from the source; skills the candidate confirmed (below) come first and count toward the 18. No soft skills, languages or job-description phrases here.
 - additional: at most 3 lines: "Soft Skills: ..." (at most 5, relevant to the job), "Languages: ..." (from the source or notes, e.g. English | Mandarin), and one more line only if the job needs it. Drop "Interests" unless it directly helps.
 - ATS keywords: use a keyword only where the candidate's experience shows it, in the job's own wording, inside bullets or the skills line. Never paste a list of keywords, and never add a keyword just because the job mentions it.
 
 FIT
-- The page must fit ONE A4 page at readable size: about 380-480 words in total.
+- The page must fit ONE A4 page at readable size: 380-480 words in total. This limit wins over the bullet counts above.
 - Use only numbers that appear in the source.${prefsText(prefs)}
 
 ATS keywords: ${JSON.stringify(keywords)}

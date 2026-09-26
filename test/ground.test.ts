@@ -48,8 +48,8 @@ assert.deepEqual(g.additional, ["Soft Skills: Teamwork | Communication", "Langua
 assert.deepEqual(g.awards, orig.awards);
 // User skill choices from ATS keywords: add confirmed ones not yet mentioned, strip left-out ones.
 const withPrefs = applySkillPrefs(g, { include: ["Docker", "React", "SQL"], omit: ["Python", "Communication"] });
-assert.deepEqual(withPrefs.skills, ["React", "Docker", "SQL"], "confirmed skills added once, left-out skill removed");
-assert.deepEqual(visible(withPrefs).skills, ["React", "Docker", "SQL"], "confirmed skills are shown");
+assert.deepEqual(withPrefs.skills, ["Docker", "React", "SQL"], "confirmed skills lead (in your order), added once; left-out skill removed");
+assert.deepEqual(visible(withPrefs).skills, ["Docker", "React", "SQL"], "confirmed skills are shown");
 assert.deepEqual(withPrefs.additional, ["Soft Skills: Teamwork", "Languages: English | Mandarin"], "left-out items removed from labelled lines");
 assert.deepEqual(applySkillPrefs(g, { include: ["Python"], omit: ["Python"] }).skills, ["React"], "leave-out wins over include");
 // Projects: the AI's choice and order (most relevant first), capped at 3; invented ones ignored.
@@ -118,4 +118,17 @@ console.log("ground self-check OK");
   const p = { ...orig, projects: [e("A"), e("B", true), e("C"), e("D")] };
   assert.deepEqual(visible(p).projects.map((x) => x.title), ["A", "C", "D"], "base resume skips it");
   assert.deepEqual(visible({ ...p, show: { projects: 2 } }).projects.map((x) => x.title), ["A", "B"], "tailored: the AI's pick stands");
+}
+
+// A hackathon entry may use facts from the project built there (they share the distinctive name "Fitz"); not from others.
+{
+  const ent = (title: string, org: string, details: string[]) => ({ title, org, location: "", dates: "2026", details });
+  const src: Profile = {
+    ...orig, skills: ["React"],
+    projects: [ent("Fitz", "React, Vercel", ["Built Fitz, a wardrobe app deployed on Vercel."]), ent("Yahboom Robot", "ROS 2", ["Built a ROS 2 stack for a Yahboom robot car."])],
+    sections: [{ title: "Hackathons", entries: [ent("SMU Agnes AI Hackathon", "SMU", ["Built Fitz in 24 hours."])] }],
+  };
+  const text = [src.summary, ...src.projects.flatMap((e) => e.details), ...src.sections[0].entries[0].details].join("\n");
+  const out = groundProfile(src, { sections: [{ title: "Hackathons", entries: [ent("SMU Agnes AI Hackathon", "SMU", ["Built Fitz in 24 hours and deployed it on Vercel.", "Integrated a Yahboom robot car."])] }] } as Partial<Profile>, text);
+  assert.deepEqual(out.sections[0].entries[0].details, ["Built Fitz in 24 hours and deployed it on Vercel."], "project facts merge into its hackathon; an unrelated project's name is still rejected (reverts to nothing in that slot)");
 }

@@ -36,7 +36,8 @@ const namesIn = (text: string) =>
   new Set(text.split(/\n/).flatMap((line) => (line.match(/[A-Za-z0-9+#'’-]+/g) || []).slice(1)).filter((w) => /^[A-Z][A-Za-z0-9+#'’-]{2,}$/.test(w)).map((w) => w.toLowerCase()));
 
 /** What a rewritten bullet may draw on: its own entry, the candidate's notes and general lines, but not other entries. */
-type BulletContext = { notes: string; general: Set<string>; others: Set<string> };
+/** `linked`: text of entries about the same work (a hackathon and the project built there), whose facts this entry may also use. */
+type BulletContext = { notes: string; general: Set<string>; others: Set<string>; linked: string };
 
 /**
  * Original entry with the AI's rewritten bullets. A bullet reverts to the original bullet in its slot if it
@@ -44,7 +45,7 @@ type BulletContext = { notes: string; general: Set<string>; others: Set<string> 
  * (a bullet about the robot car must not end up under a web app).
  */
 function pinEntry(o: Entry, a: Entry | undefined, ctx: BulletContext): Entry {
-  const own = entryText(o);
+  const own = `${entryText(o)}\n${ctx.linked}`;
   const ownNames = namesIn(own);
   const ok = (d: string) => numbersSupported(d, `${own}\n${ctx.notes}`) && ![...namesIn(d)].some((n) => !ownNames.has(n) && !ctx.general.has(n) && ctx.others.has(n));
   const aiDetails = Array.isArray(a?.details) ? a!.details.map(String).filter((d) => d.trim()) : [];
@@ -99,7 +100,14 @@ export function groundProfile(orig: Profile, ai: Partial<Profile>, source: strin
   const notes = source.includes("## Notes from the candidate") ? source.slice(source.indexOf("## Notes from the candidate")) : "";
   const general = namesIn([orig.summary, notes, ...(orig.additional || []), ...orig.awards].join("\n"));
   const all = [...orig.education, ...orig.experience, ...orig.projects, ...(orig.sections || []).flatMap((s) => s.entries)];
-  const ctx = (o: Entry): BulletContext => ({ notes, general, others: namesIn(all.filter((e) => e !== o).map(entryText).join("\n")) });
+  // Two entries sharing a distinctive name found in no other entry (a hackathon and the project "Fitz" built there)
+  // describe the same work, so either may use the other's facts; every other entry's names stay off limits.
+  const namesOf = new Map(all.map((e) => [e, namesIn(entryText(e))]));
+  const seen = new Map<string, number>();
+  for (const set of namesOf.values()) for (const n of set) seen.set(n, (seen.get(n) || 0) + 1);
+  const skillNames = new Set(orig.skills.map(norm));
+  const linkedTo = (o: Entry) => all.filter((e) => e !== o && [...namesOf.get(o)!].some((n) => seen.get(n) === 2 && namesOf.get(e)!.has(n) && !general.has(n) && !skillNames.has(n)));
+  const ctx = (o: Entry): BulletContext => ({ notes, general, others: namesIn(all.filter((e) => e !== o).map(entryText).join("\n")), linked: linkedTo(o).map(entryText).join("\n") });
   const summary = typeof ai.summary === "string" && numbersSupported(ai.summary, source) ? ai.summary : orig.summary;
   const show: Record<string, number> = {};
   // Skills: the AI's picks first, then every other skill you listed (stored, not shown).
@@ -142,11 +150,13 @@ export function applySkillPrefs(p: Profile, prefs: { include: string[]; omit: st
     const items = m[2].split(/\s*[|,]\s*/).filter((it) => it && !omitted(it));
     return items.length ? `${m[1]}: ${items.join(sep)}` : null;
   }).filter((l): l is string => !!l);
-  const text = [p.summary, shownSkills.join(" | "), additional.join("\n"), ...[...p.experience, ...p.projects, ...p.education, ...(p.sections || []).flatMap((x) => x.entries)].flatMap((e) => e.details)].join("\n");
-  // Confirmed skills go on the page (end of the shown part); a stored-but-hidden one moves up.
-  const missing = prefs.include.filter((k) => k.trim() && !omitted(k) && !inSource(k, text));
-  const rest = skills.slice(shownSkills.length).filter((s) => !missing.some((m) => norm(m) === norm(s)));
-  return { ...p, skills: [...shownSkills, ...missing, ...rest], additional, show: { ...(p.show || {}), skills: shownSkills.length + missing.length } };
+  // Confirmed skills lead the skills line so the 18-skill cap never cuts them (except ones already on a labelled
+  // line such as Soft Skills or Languages); everything else keeps its order after them.
+  const isConfirmed = (x: string) => prefs.include.some((k) => norm(k) === norm(x));
+  const confirmed = [...new Set(prefs.include.filter((k) => k.trim() && !omitted(k) && !additional.some((l) => inSource(k, l)))
+    .map((k) => skills.find((x) => norm(x) === norm(k)) || k.trim()))];
+  const shownRest = shownSkills.filter((x) => !isConfirmed(x)).length;
+  return { ...p, skills: [...confirmed, ...skills.filter((x) => !isConfirmed(x))], additional, show: { ...(p.show || {}), skills: confirmed.length + shownRest } };
 }
 
 /** How much a job looks like a target title: share of the target's keywords (and title words) found in the job, plus title overlap. */
