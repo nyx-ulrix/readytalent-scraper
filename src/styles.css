@@ -138,6 +138,16 @@ button.small { padding: 3px 9px; font-size: 12px; }
   input, select, textarea { font-size: 16px; } /* stops iOS zooming into fields */
 }
 
+/* Details tab: each entry is a one-line title that opens to edit */
+.card.entry { padding: 0; }
+.card.entry > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.card.entry > summary::-webkit-details-marker { display: none; }
+.card.entry > summary::before { content: "▸"; color: var(--muted); }
+.card.entry[open] > summary::before { content: "▾"; }
+.card.entry > summary .entry-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.entry[open] > summary .entry-title { white-space: normal; }
+.card.entry > :not(summary) { margin-left: 12px; margin-right: 12px; }
+.card.entry[open] { padding-bottom: 10px; }
 .only-if { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; font-size: 12px; color: var(--muted); }
 .only-if input { width: auto; }
 .rank { font-size: 12px; color: var(--muted); min-width: 26px; text-align: right; }

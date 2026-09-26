@@ -1237,29 +1237,57 @@ function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) 
   );
 }
 
+/**
+ * One section of your details (Experience, Projects...). Each entry is a one-line title you tap to open and edit;
+ * ↑ ↓ set your ranking without opening it. New entries open straight away.
+ */
 function EntryList({ title, items, shown = Infinity, onChange }: { title: string; items: Entry[]; shown?: number; onChange: (e: Entry[]) => void }) {
+  const [open, setOpen] = useState<Set<number>>(new Set());
   const set = (i: number, patch: Partial<Entry>) => onChange(items.map((e, j) => (j === i ? { ...e, ...patch } : e)));
+  const toggle = (i: number, on: boolean) => setOpen((o) => { const n = new Set(o); if (on) n.add(i); else n.delete(i); return n; });
+  /** Swap entries i and j (and which of them is open). */
+  const move = (i: number, j: number) => {
+    onChange(items.map((x, k) => (k === i ? items[j] : k === j ? items[i] : x)));
+    setOpen((o) => { const n = new Set(o); const a = o.has(i), b = o.has(j); n.delete(i); n.delete(j); if (a) n.add(j); if (b) n.add(i); return n; });
+  };
+  const remove = (i: number) => {
+    if (!confirm(`Delete "${items[i].title || "this entry"}"?`)) return;
+    onChange(items.filter((_, j) => j !== i));
+    setOpen((o) => new Set([...o].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k))));
+  };
+  const stop = (fn: () => void) => (ev: React.MouseEvent) => { ev.preventDefault(); ev.stopPropagation(); fn(); };
   return (
     <>
-      <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => onChange([...items, emptyEntry()])}>+ Add</button></h2>
-      <div className="small muted">Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job; tick "Only if very relevant" on ones you don't want shown otherwise.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
+      <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => { onChange([...items, emptyEntry()]); toggle(items.length, true); }}>+ Add</button></h2>
+      <div className="small muted">Tap an entry to see and edit its details. Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job{title !== "Experience" && title !== "Education" ? `; tick "Only if very relevant" on ones you don't want shown otherwise` : ""}.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
       {items.map((e, i) => (
-        <div className={`card${i >= shown || e.onlyIfVeryRelevant ? " stored" : ""}`} key={i} title={e.onlyIfVeryRelevant ? "Only used when very relevant to a job" : i >= shown ? "Stored, not on the page" : undefined}>
-          <div className="row">
+        <details key={i} open={open.has(i)} onToggle={(ev) => { const on = (ev.target as HTMLDetailsElement).open; if (on !== open.has(i)) toggle(i, on); }}
+          className={`card entry${i >= shown || e.onlyIfVeryRelevant ? " stored" : ""}`} title={e.onlyIfVeryRelevant ? "Only used when very relevant to a job" : i >= shown ? "Stored, not on the page" : undefined}>
+          <summary>
+            <span className="rank">#{i + 1}</span>
+            <span className="entry-title">
+              <b>{e.title || <span className="muted">Untitled</span>}</b>
+              {(e.org || e.dates) && <span className="small muted"> · {[e.org, e.dates].filter(Boolean).join(" · ")}</span>}
+              {e.onlyIfVeryRelevant && <span className="small muted"> · only if very relevant</span>}
+            </span>
+            {i > 0 && <button className="ghost small" title="Rank higher" onClick={stop(() => move(i, i - 1))}>↑</button>}
+            {i < items.length - 1 && <button className="ghost small" title="Rank lower" onClick={stop(() => move(i, i + 1))}>↓</button>}
+          </summary>
+          <div className="row" style={{ marginTop: 8 }}>
             <input placeholder={title === "Education" ? "Degree" : "Role / project name"} value={e.title} onChange={(ev) => set(i, { title: ev.target.value })} />
             <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
             <input placeholder="Location" value={e.location || ""} onChange={(ev) => set(i, { location: ev.target.value })} />
             <input placeholder="Dates (e.g. Jan 2024 – Present)" value={e.dates} onChange={(ev) => set(i, { dates: ev.target.value })} />
-            <span className="rank" title="Your ranking">#{i + 1}</span>
-            {i > 0 && <button className="ghost" title="Rank higher" onClick={() => onChange(items.map((x, j) => (j === i - 1 ? items[i] : j === i ? items[i - 1] : x)))}>↑</button>}
-            {i < items.length - 1 && <button className="ghost" title="Rank lower" onClick={() => onChange(items.map((x, j) => (j === i + 1 ? items[i] : j === i ? items[i + 1] : x)))}>↓</button>}
-            <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>
           {title !== "Experience" && title !== "Education" && <label className="only-if" title="For things you don't find impressive: tailored resumes use it only when it closely matches the job, and your base resume leaves it out.">
             <input type="checkbox" checked={!!e.onlyIfVeryRelevant} onChange={(ev) => set(i, { onlyIfVeryRelevant: ev.target.checked || undefined })} /> Only if very relevant (not one I'd showcase)
           </label>}
-          <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
-        </div>
+          <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} rows={Math.min(Math.max(e.details.length + 1, 3), 12)} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })} />
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="ghost small" onClick={() => toggle(i, false)}>Done</button>
+            <button className="ghost small" onClick={() => remove(i)}>Delete</button>
+          </div>
+        </details>
       ))}
     </>
   );
