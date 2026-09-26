@@ -27,6 +27,8 @@ export type Profile = {
 };
 export type Template = "standard" | "classic" | "modern" | "compact";
 export type State = {
+  /** Laptop copy's revision this device's copy is based on (see store.ts). */
+  _rev?: number;
   profile: Profile; template: Template;
   /** Bumped when a default changes so saved state picks it up once (2 = "standard" template). */
   defaultsVersion: number;

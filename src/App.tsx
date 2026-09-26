@@ -18,11 +18,11 @@ import { monthlyPay, payPasses } from "./pay";
 import { MAX_PROJECTS, MAX_SKILLS, isLeadership, sectionKey, sectionLimit, shownCount } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
-type Tab = "jobs" | "search" | "targets" | "saved" | "applied" | "resume" | "settings";
-type ListMode = "rt" | "boards" | "targets" | "saved" | "applied";
+type Tab = "jobs" | "find" | "targets" | "saved" | "applied" | "resume" | "settings";
+type ListMode = "all" | "targets" | "saved" | "applied";
 type Update = (patch: Partial<State> | ((s: State) => State)) => void;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
-const TAB_LABEL: Record<Tab, string> = { jobs: "ReadyTalent", search: "Search", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
+const TAB_LABEL: Record<Tab, string> = { jobs: "Jobs", find: "Find jobs", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
 const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", pasted: "Pasted" } as const;
 const sourceOf = (j: Job) => (j.source ? SOURCE_LABEL[j.source] : "ReadyTalent");
 
@@ -68,8 +68,9 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {tab === "jobs" && <Jobs mode="rt" jobs={jobs} setJobs={setJobs} {...common} {...selFor("jobs")} />}
-        {tab === "search" && <SearchPage boardJobs={boardJobs} setBoardJobs={setBoardJobs} {...common} {...selFor("search")} />}
+        {tab === "jobs" && <Jobs mode="all" jobs={allJobs} {...common} {...selFor("jobs")} />}
+        {tab === "find" && <FindPage jobs={jobs} setJobs={setJobs} boardJobs={boardJobs} setBoardJobs={setBoardJobs} state={state} update={update}
+          onView={(j) => { if (j) selFor("jobs").setSel(j); setTab("jobs"); }} />}
         {tab === "targets" && <TargetsPage {...common} {...selFor("targets")} />}
         {tab === "saved" && <Jobs mode="saved" jobs={savedJobs} {...common} {...selFor("saved")} />}
         {tab === "applied" && <Jobs mode="applied" jobs={appliedJobs} {...common} {...selFor("applied")} />}
@@ -82,11 +83,11 @@ export default function App() {
 
 /* ---------------- Jobs ---------------- */
 
-function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }: {
-  mode: ListMode; jobs: Job[]; setJobs?: (j: Job[]) => void; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
+function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
+  mode: ListMode; jobs: Job[]; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
   open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode;
 }) {
-  const rt = mode === "rt";
+  const rt = mode === "all"; // show the ReadyTalent employment type / programme dropdowns
   /** Filters and sort are remembered for each list (ReadyTalent, Search, Saved, Applied), across restarts. */
   const kept = state.listFilters?.[mode] || {};
   const keep = <T,>(k: string, def: T): [T, (v: T) => void] =>
@@ -101,8 +102,6 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const [q, setQ] = keep("q", "");
   const [onlySaved, setOnlySaved] = keep("onlySaved", false);
   const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open">("appliedFilter", "");
-  const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
   useEffect(() => { fetchMeta().then(setMeta); }, []);
   const { employmentType: type, course } = state;
@@ -171,8 +170,8 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
     const needle = q.trim().toLowerCase();
     const list = jobs.filter((j) => {
       const sk = j.skills.map((s) => s.trim().toLowerCase());
-      return (!rt || !type || j.type === type) &&
-      (!rt || !course || (j.programmes || []).includes(course)) &&
+      return (!rt || !type || !!j.source || j.type === type) &&
+      (!rt || !course || !!j.source || (j.programmes || []).includes(course)) &&
       (!src || sourceOf(j) === src) &&
       (!emp || (empOf(j) || "").split(/\s*,\s*/).includes(emp)) &&
       (!work || j.workplace === work) && (!lvl || j.level === lvl) &&
@@ -204,35 +203,12 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
     return list.sort(cmp[sort] || cmp.posted); // a remembered sort whose target was removed
   }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets]);
 
-  const [prog, setProg] = useState<{ i: number; n: number } | null>(null);
-  useEffect(() => window.desktop?.onProgress((p) => { setProg(p.n ? { i: p.i, n: p.n } : null); setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`); }), []);
-
-  const scrape = async () => {
-    setBusy(true); setStatus("Scraping…");
-    try {
-      const r = await window.desktop!.scrape();
-      setJobs?.(await fetchJobs());
-      setMeta(await fetchMeta());
-      setStatus(`Done: ${r.added} new, ${r.total} total.`);
-    } catch (e) { setStatus((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); }
-    setBusy(false); setProg(null);
-  };
-
   return (
     <div className={`jobs ${sel ? "has-sel" : ""}`}>
       {header}
       <aside className="list app-chrome">
         <div className="toolbar">
-          {rt && (isDesktop() ? (
-            <div className="row">
-              <button onClick={scrape} disabled={busy}>{busy ? "Working…" : "Scrape ReadyTalent"}</button>
-              <button className="ghost" onClick={() => window.desktop!.openPortal()}>Open portal</button>
-            </div>
-          ) : (
-            <div className="small muted">Scraping runs on the laptop app. This device shows the jobs it saved.</div>
-          ))}
-          {busy && (prog ? <progress className="loading" value={prog.i} max={prog.n} /> : <progress className="loading" />)}
-          <div className="status">{status || `${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
+          <div className="status">{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
           <input placeholder="Search title, company, location, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
           <details className="filters" open={filtersOpen} onToggle={(e) => setFiltersOpen((e.target as HTMLDetailsElement).open)}>
           <summary>
@@ -250,18 +226,19 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
             {origin && <button className="ghost" onClick={() => { setNearDraft(""); void locate(""); }}>✕</button>}
           </div>
           {(geoStatus || origin) && <div className="small muted">{geoStatus || `Distances from ${near.place}${near.km > 0 ? `; showing jobs within ${near.km} km` : ""}. Jobs without a street-level address (e.g. just "Singapore") are hidden while a distance is set.`}</div>}
-          {rt ? (
+          {rt && (
             <>
               <select value={type} onChange={(e) => update({ employmentType: e.target.value })}>
-                <option value="">Employment Types (all)</option>
+                <option value="">ReadyTalent employment types (all)</option>
                 {types.map((t) => <option key={t}>{t}</option>)}
               </select>
               <select value={course} onChange={(e) => update({ course: e.target.value })}>
-                <option value="">Programmes (all)</option>
+                <option value="">ReadyTalent programmes (all)</option>
                 {courses.map((c) => <option key={c}>{c}</option>)}
               </select>
             </>
-          ) : (
+          )}
+          {(
             <>
               <div className="row">
                 <select value={src} onChange={(e) => setSrc(e.target.value)} style={{ flex: 1 }}>
@@ -337,10 +314,10 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}`} onClick={() => setSel(j)}>
             <div className="t">{state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
-            <div className="m">{[!rt ? sourceOf(j) : "", j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
+            <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
         ))}
-        {!shown.length && <div className="empty">{jobs.length ? "No matches." : { rt: "No jobs yet. Save your ReadyTalent sign-in in Settings, then Scrape.", boards: "No results yet. Pick search terms above and press Search.", targets: "No jobs for this title yet. On the Search tab, open it under \"Target a specific job title\" and press Search jobs like this.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}
+        {!shown.length && <div className="empty">{jobs.length ? "No matches." : { all: "No jobs yet. Use Find jobs to scrape ReadyTalent, search LinkedIn and Indeed, or paste a posting.", targets: "No jobs for this title yet. On the Find jobs tab, open it under \"Target a specific job title\" and press Search jobs like this.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}
       </aside>
       {sel ? <Detail job={sel} state={state} update={update} back={() => setSel(null)} open={open} /> : (
         <div className="empty app-chrome">Pick a job to see its description, required skills and salary, then generate a tailored resume or cover letter.</div>
@@ -478,9 +455,9 @@ function ChipInput({ items, onAdd, onRemove, placeholder }: { items: string[]; o
  * LinkedIn / Indeed search. The AI suggests roles and writes search terms, but nothing is scraped
  * until the user presses Search, and only the ticked terms are searched.
  */
-function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open }: {
-  boardJobs: Job[]; setBoardJobs: (j: Job[]) => void; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
-  open: (kind: "resume" | "letter", jobId: string) => void;
+/** Find jobs: every way of getting postings in (ReadyTalent, LinkedIn / Indeed, target titles, pasted postings). Browsing is on the Jobs tab. */
+function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onView }: {
+  jobs: Job[]; setJobs: (j: Job[]) => void; boardJobs: Job[]; setBoardJobs: (j: Job[]) => void; state: State; update: Update; onView: (j?: Job) => void;
 }) {
   const [busy, setBusy] = useState<"" | "roles" | "terms" | "target" | "search">("");
   const [status, setStatus] = useState("");
@@ -556,8 +533,8 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
   };
 
   const panel = (
-    <details className="search-panel app-chrome">
-      <summary>{busy === "search" && <progress className="loading inline" />}Search LinkedIn and Indeed{onTerms.length ? ` · ${onTerms.length} terms ticked` : ""}{busy === "search" && status ? ` · ${status}` : ""}{!busy && err ? " · last search had problems (open for details)" : ""}</summary>
+    <section className="find-section">
+      <h2>LinkedIn and Indeed <span className="small muted" style={{ fontWeight: 400 }}>· {boardJobs.length} results stored{onTerms.length ? ` · ${onTerms.length} terms ticked` : ""}</span></h2>
       <label>Roles you are interested in (press Enter to add; each one is also added as a search term)</label>
       <ChipInput items={interests} placeholder="e.g. Project Manager, Technical Sales" onAdd={(v) => v.split(/[,;]+/).map((x) => x.trim()).filter(Boolean).forEach(addInterest)} onRemove={(r) => update({ interests: interests.filter((x) => x !== r) })} />
       <div className="row" style={{ marginTop: 6 }}>
@@ -649,22 +626,72 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
         </div>
         <div className="small muted">LinkedIn applies all of these. Indeed applies one employment type, remote-only and one level itself; the rest are filtered from its results.</div>
       </div>
+      {busy === "search" && <progress className="loading" />}
       {isDesktop() ? (
         <div className="row">
           <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={() => void search()}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
           {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
           <button className="ghost small" onClick={() => window.desktop!.showBoardWindow()} title="Shows the hidden browser window, e.g. to complete an Indeed verification yourself">Open Indeed window</button>
-          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (confirm(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); setSel(null); } }}>Clear results</button>}
+          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (confirm(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); } }}>Clear results</button>}
         </div>
       ) : <div className="small muted">Searching runs on the laptop app. This device shows the stored results.</div>}
-      <div className="status">{status}</div>
+      <div className="status">{status}{!busy && /^Done/.test(status) && <> <button className="ghost small" onClick={() => onView()}>View in Jobs</button></>}</div>
       {err && <div className="status err">{err}</div>}
-    </details>
+    </section>
   );
   return (
-    <div className="search-page">
-      <Jobs mode="boards" jobs={[...(state.pasted || []), ...boardJobs]} state={state} update={update} sel={sel} setSel={setSel} open={open} header={<>{panel}<PastePosting state={state} update={update} onAdded={setSel} /></>} />
+    <div className="find-page app-chrome">
+      <ReadyTalentScrape jobs={jobs} setJobs={setJobs} state={state} update={update} onView={onView} />
+      {panel}
+      <PastePosting state={state} update={update} onView={onView} />
     </div>
+  );
+}
+
+/** Scrape ReadyTalent (laptop app), with the employment type / programme you want to see in Jobs. */
+function ReadyTalentScrape({ jobs, setJobs, state, update, onView }: { jobs: Job[]; setJobs: (j: Job[]) => void; state: State; update: Update; onView: (j?: Job) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [prog, setProg] = useState<{ i: number; n: number } | null>(null);
+  const [meta, setMeta] = useState<Meta>(DEFAULT_META);
+  useEffect(() => { fetchMeta().then(setMeta); }, []);
+  useEffect(() => window.desktop?.onProgress((p) => { setProg(p.n ? { i: p.i, n: p.n } : null); setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`); }), []);
+  const options = (fromMeta: string[], fromJobs: string[]) => [...new Set([...fromMeta, ...fromJobs.filter(Boolean).sort()])];
+  const types = options(meta.employmentTypes, jobs.map((j) => j.type));
+  const courses = options(meta.programmes, jobs.flatMap((j) => j.programmes || []));
+  const scrape = async () => {
+    setBusy(true); setStatus("Scraping…");
+    try {
+      const r = await window.desktop!.scrape();
+      setJobs(await fetchJobs());
+      setMeta(await fetchMeta());
+      setStatus(`Done: ${r.added} new, ${r.total} total.`);
+    } catch (e) { setStatus((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); }
+    setBusy(false); setProg(null);
+  };
+  return (
+    <section className="find-section">
+      <h2>ReadyTalent <span className="small muted" style={{ fontWeight: 400 }}>· {jobs.length} jobs stored</span></h2>
+      <div className="small muted">Show these in Jobs (saved between sessions):</div>
+      <div className="row">
+        <select value={state.employmentType} onChange={(e) => update({ employmentType: e.target.value })} style={{ flex: 1 }}>
+          <option value="">Employment types (all)</option>
+          {types.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <select value={state.course} onChange={(e) => update({ course: e.target.value })} style={{ flex: 1 }}>
+          <option value="">Programmes (all)</option>
+          {courses.map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </div>
+      {busy && (prog ? <progress className="loading" value={prog.i} max={prog.n} /> : <progress className="loading" />)}
+      {isDesktop() ? (
+        <div className="row" style={{ marginTop: 8 }}>
+          <button onClick={scrape} disabled={busy}>{busy ? "Scraping…" : "Scrape ReadyTalent"}</button>
+          <button className="ghost" onClick={() => window.desktop!.openPortal()}>Open portal</button>
+        </div>
+      ) : <div className="small muted">Scraping runs on the laptop app. This device shows the jobs it saved.</div>}
+      <div className="status">{status}{!busy && /^Done/.test(status) && <> <button className="ghost small" onClick={() => onView()}>View in Jobs</button></>}</div>
+    </section>
   );
 }
 
@@ -846,7 +873,7 @@ function Settings({ state, update }: { state: State; update: Update }) {
       </div>
       <div className="small muted">The resume header shows phone • email • portfolio • LinkedIn • GitHub, all clickable in the PDF.</div>
       <div className="row" style={{ marginTop: 16, alignItems: "center" }}>
-        <button className="ghost" title="Uses AI tokens" disabled={ranking === "Ranking…"} onClick={() => { if (aiConfirm(state, `Rank your projects, sections and skills by relevance to ${(state.interests || []).length ? "the roles you want (Search tab)" : "the roles your resume fits"}? Only the order changes.`)) void rank(); }}>✦ Rank by relevance</button>
+        <button className="ghost" title="Uses AI tokens" disabled={ranking === "Ranking…"} onClick={() => { if (aiConfirm(state, `Rank your projects, sections and skills by relevance to ${(state.interests || []).length ? "the roles you want (Find jobs tab)" : "the roles your resume fits"}? This replaces your own ranking order; nothing is removed.`)) void rank(); }}>✦ Rank by relevance</button>
         <span className="small muted">{ranking || "Everything stays stored; resumes show the top of each list."}</span>
       </div>
       <ProfileBody p={p} setP={setP} />
@@ -855,9 +882,10 @@ function Settings({ state, update }: { state: State; update: Update }) {
 
       {isDesktop() && (
         <>
-          <h2>Tablet access</h2>
-          <div className="small muted">On the same Wi-Fi, open one of these in the tablet browser, then use "Add to Home Screen". Your details and jobs sync from this laptop while the app is running.</div>
-          <ul>{lan.map((u) => <li key={u}><code>{u}</code></li>)}</ul>
+          <h2>Phone and tablet access</h2>
+          <div className="small muted">On the same Wi-Fi, open this in your phone or tablet browser, then use "Add to Home Screen". Everything syncs with this laptop while AutoResume is running here.</div>
+          {lan.length ? <ul>{lan.map((u) => <li key={u}><code style={{ fontSize: 16 }}>{u}</code></li>)}</ul> : <div className="small warn">This laptop isn't on a Wi-Fi or wired network right now.</div>}
+          <div className="small muted">Page won't load on the phone? Windows Firewall is probably blocking it on your home network: open <b>Windows Security → Firewall &amp; network protection → Allow an app through firewall</b>, click <b>Change settings</b>, and tick <b>Private</b> next to <b>autoresume</b>. Also check the phone is on the same Wi-Fi, not mobile data or a guest network.</div>
         </>
       )}
       <h2>Data</h2>
@@ -1070,7 +1098,8 @@ const LINK = /^https?:\/\/\S+$/i;
  * Paste a job posting to keep it with your jobs and tailor for it. A link is read and saved straight away
  * (no AI); pasted text can be read with the AI or saved as it is with a title you type.
  */
-function PastePosting({ state, update, onAdded }: { state: State; update: Update; onAdded: (j: Job) => void }) {
+function PastePosting({ state, update, onView }: { state: State; update: Update; onView: (j?: Job) => void }) {
+  const [last, setLast] = useState<Job | null>(null);
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [company, setCompany] = useState("");
@@ -1081,7 +1110,7 @@ function PastePosting({ state, update, onAdded }: { state: State; update: Update
   const save = (j: Job) => {
     update((s) => ({ ...s, pasted: [j, ...(s.pasted || []).filter((x) => x.id !== j.id)] }));
     setText(""); setTitle(""); setCompany(""); setErr("");
-    onAdded(j);
+    setLast(j);
   };
   const fromText = (job: Partial<Job>, body: string) => {
     const j: Job = {
@@ -1109,8 +1138,8 @@ function PastePosting({ state, update, onAdded }: { state: State; update: Update
   };
   const isLink = LINK.test(text.trim());
   return (
-    <details className="search-panel app-chrome">
-      <summary>Paste a job posting <span className="small muted" style={{ fontWeight: 400 }}>· from any site{(state.pasted || []).length ? ` · ${(state.pasted || []).length} pasted` : ""}</span></summary>
+    <section className="find-section">
+      <h2>Paste a job posting <span className="small muted" style={{ fontWeight: 400 }}>· from any site{(state.pasted || []).length ? ` · ${(state.pasted || []).length} pasted` : ""}</span></h2>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         <textarea rows={5} value={text} disabled={!!busy} placeholder="Paste a link to a job posting (saved straight away, no AI), or the posting's whole text"
           onChange={(e) => { setText(e.target.value); setNote(""); }}
@@ -1132,10 +1161,10 @@ function PastePosting({ state, update, onAdded }: { state: State; update: Update
           </>
         ) : null}
         {busy && <div className="status"><progress className="loading inline" />{busy}</div>}
-        {note && <div className="status" style={{ color: "var(--ok)" }}>{note}</div>}
+        {note && <div className="status" style={{ color: "var(--ok)" }}>{note}{last && <> <button className="ghost small" onClick={() => onView(last)}>View in Jobs</button></>}</div>}
         {err && <div className="status err">{err}</div>}
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -1175,7 +1204,7 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
   return (
     <>
       <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => onChange([...items, emptyEntry()])}>+ Add</button></h2>
-      {(title === "Projects" || isLeadership(title) || shown < items.length) && <div className="small muted">Ranked, most relevant first: the page shows the top {Math.min(shown, items.length)} (use ↑ to reorder); everything below stays stored.</div>}
+      <div className="small muted">Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
       {items.map((e, i) => (
         <div className={`card${i >= shown ? " stored" : ""}`} key={i} title={i >= shown ? "Stored, not on the page" : undefined}>
           <div className="row">
@@ -1183,7 +1212,9 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
             <input placeholder={title === "Projects" ? "Tech stack" : "Organisation"} value={e.org} onChange={(ev) => set(i, { org: ev.target.value })} />
             <input placeholder="Location" value={e.location || ""} onChange={(ev) => set(i, { location: ev.target.value })} />
             <input placeholder="Dates (e.g. Jan 2024 – Present)" value={e.dates} onChange={(ev) => set(i, { dates: ev.target.value })} />
-            {i > 0 && <button className="ghost" title="Move up" onClick={() => onChange(items.map((x, j) => (j === i - 1 ? items[i] : j === i ? items[i - 1] : x)))}>↑</button>}
+            <span className="rank" title="Your ranking">#{i + 1}</span>
+            {i > 0 && <button className="ghost" title="Rank higher" onClick={() => onChange(items.map((x, j) => (j === i - 1 ? items[i] : j === i ? items[i - 1] : x)))}>↑</button>}
+            {i < items.length - 1 && <button className="ghost" title="Rank lower" onClick={() => onChange(items.map((x, j) => (j === i + 1 ? items[i] : j === i ? items[i + 1] : x)))}>↓</button>}
             <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
           </div>
           <textarea placeholder="Bullet points, one per line" value={e.details.join("\n")} onChange={(ev) => set(i, { details: ev.target.value.split("\n") })} onBlur={(ev) => set(i, { details: ev.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />

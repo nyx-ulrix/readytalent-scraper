@@ -8,13 +8,19 @@ const KEY = "autoresume";
 const withTimeout = (p: Promise<Response>, ms: number) =>
   Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 
+async function fetchState(ms: number): Promise<State | null> {
+  try { const r = await withTimeout(fetch("/api/state", { cache: "no-store" }), ms); return r.ok ? await r.json() : null; }
+  catch { return null; }
+}
+
 async function load(): Promise<State> {
-  let s: State | null = null;
-  try {
-    const r = await withTimeout(fetch("/api/state"), 1500);
-    if (r.ok) s = await r.json();
-  } catch { /* offline from laptop: fall back to this device */ }
-  if (!s) { try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch { /* ignore */ } }
+  let s = await fetchState(4000);
+  if (!s) { try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch { /* ignore */ } } // laptop unreachable: this device's copy
+  return normalize(s);
+}
+
+/** Fill in defaults and run one-time migrations on a saved state. */
+function normalize(s: State | null): State {
   const merged: State = { ...defaultState, ...(s || {}), profile: { ...defaultState.profile, ...(s?.profile || {}) } };
   // Older saved state kept all links in one string: sort them into the new fields once.
   const sp = s?.profile as Partial<Profile> | undefined;
@@ -26,22 +32,56 @@ async function load(): Promise<State> {
   return merged;
 }
 
-/** State lives in localStorage on every device and mirrors to the laptop's state.json when reachable. */
-export function useAppState(): [State, (patch: Partial<State> | ((s: State) => State)) => void, boolean] {
+type Patch = Partial<State> | ((s: State) => State);
+const apply = (s: State, p: Patch): State => (typeof p === "function" ? p(s) : { ...s, ...p });
+
+/**
+ * State lives on the laptop (state.json) and is cached in localStorage on every device (laptop window, tablet, phone).
+ * Saves are revision-checked: if another device saved first, this device fetches the laptop's copy and re-applies
+ * only its own unsaved changes, so an old copy on one device can never overwrite newer data from another.
+ * Devices also pick up other devices' changes when you come back to them (and every 30 s).
+ */
+export function useAppState(): [State, (patch: Patch) => void, boolean] {
   const [state, setState] = useState<State>(defaultState);
   const [ready, setReady] = useState(false);
+  const cur = useRef<State>(defaultState);
+  const pending = useRef<Patch[]>([]); // changes not yet saved on the laptop
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => { load().then((s) => { setState(s); setReady(true); }); }, []);
-  const update = (patch: Partial<State> | ((s: State) => State)) =>
-    setState((prev) => {
-      const next = typeof patch === "function" ? patch(prev) : { ...prev, ...patch };
-      try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
-        fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) }).catch(() => undefined);
-      }, 500);
-      return next;
-    });
+  const put = (s: State) => { cur.current = s; setState(s); try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ } };
+  const schedule = (ms = 500) => { window.clearTimeout(timer.current); timer.current = window.setTimeout(() => void flush(), ms); };
+  const flush = async (): Promise<void> => {
+    if (!pending.current.length) return;
+    const sent = pending.current.length;
+    try {
+      const r = await fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cur.current) });
+      if (r.ok) {
+        const out = await r.json();
+        cur.current = { ...cur.current, _rev: out.rev };
+        try { localStorage.setItem(KEY, JSON.stringify(cur.current)); } catch { /* ignore */ }
+        pending.current = pending.current.slice(sent);
+        if (pending.current.length) schedule();
+        return;
+      }
+      if (r.status === 409) {
+        const latest = await fetchState(5000);
+        if (latest) { put(pending.current.reduce(apply, normalize(latest))); return flush(); }
+      }
+    } catch { /* laptop unreachable: keep the changes */ }
+    schedule(5000);
+  };
+  useEffect(() => {
+    load().then((s) => { put(s); setReady(true); });
+    const refresh = async () => {
+      if (pending.current.length || document.visibilityState === "hidden") return;
+      const latest = await fetchState(3000);
+      if (latest && latest._rev !== cur.current._rev && !pending.current.length) put(normalize(latest));
+    };
+    const iv = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(iv); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const update = (patch: Patch) => { pending.current.push(patch); put(apply(cur.current, patch)); schedule(); };
   return [state, update, ready];
 }
 

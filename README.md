@@ -18,7 +18,7 @@ Not sure which Mac you have? Click the Apple menu () → **About This Mac**. "Ch
 
 1. Run the installer.
 2. If a blue "Windows protected your PC" box appears, click **More info** → **Run anyway**. It appears because the app is not signed by a paid publisher.
-3. If Windows Firewall asks, allow AutoResume if you want to use it from a tablet.
+3. If Windows Firewall asks, tick **Private networks** and allow AutoResume if you want to use it from a phone or tablet.
 
 ## Install on macOS
 
@@ -49,12 +49,13 @@ On a Mac, closing the window does not quit AutoResume, so a tablet can still con
 
 - **ReadyTalent tab:** press **Scrape ReadyTalent**. It signs in and saves every job with title, company, pay, skills needed and description. Filter by type, programme, pay and skills.
 - **Location and distance (every job list):** the search box also matches locations. Type a place in **Near** (postcode, street or MRT station), set **within [number] km**, and press Go to see only jobs within that distance, with the distance on each job and a **Nearest first** sort. Addresses are looked up with Singapore's OneMap, then OpenStreetMap, once each and cached; the first lookup of a long list can take a few minutes. Jobs listed only as "Singapore" or "Remote" have no address to measure and are hidden while a distance is set. Pay is filtered by typing a minimum monthly amount (yearly and hourly pay are converted).
-- **Search tab:** add the roles you want or type terms like "project manager, technical sales", set filters (job type, remote/hybrid, experience level, companies, pay) and press **Search**. Nothing is fetched until you press Search.
-- **Target a specific job title (Search tab):** type a title such as "Forward Deployed Engineer" and press **✦ Generate posting**. The AI writes a typical posting for that role (an example, not a real job), the search terms that find it and the jobs that are really the same work under other titles, and its key skills. **Search jobs like this** searches just those terms, and the sort option **Most like: <title>** ranks every result by how closely it matches.
+- **Find jobs tab (all the scraping tools):** scrape ReadyTalent, search LinkedIn and Indeed, target a job title, or paste a posting. Browse and filter everything you've scraped on the **Jobs** tab.
+- **LinkedIn / Indeed search:** add the roles you want or type terms like "project manager, technical sales", set filters (job type, remote/hybrid, experience level, companies, pay) and press **Search**. Nothing is fetched until you press Search.
+- **Target a specific job title (Find jobs tab):** type a title such as "Forward Deployed Engineer" and press **✦ Generate posting**. The AI writes a typical posting for that role (an example, not a real job), the search terms that find it and the jobs that are really the same work under other titles, and its key skills. **Search jobs like this** searches just those terms, and the sort option **Most like: <title>** ranks every result by how closely it matches.
 - **Targets tab:** jobs found with **Search jobs like this** are kept under that job title, with their full details, in the Targets tab (pick the title from the dropdown). It appears once a target search has found jobs.
 - **Update your details (Settings):** add what's new from a newer resume, your portfolio or LinkedIn page, or pasted text. Nothing you already have is removed or reworded; new jobs, projects, bullet points and skills are added below yours, and **Undo** puts everything back.
 - **Filters are remembered:** each job list keeps its filters, search text and sort between sessions.
-- **Paste a job posting (Search tab):** paste a link to a posting (LinkedIn, MyCareersFuture, company career pages and most job sites) and it is read and saved straight away, no AI: title, company, pay, location, job type, deadline, description and skills. Or paste a posting's text and press **✦ Add with AI**, or **Add without AI** with a title you type. Pasted jobs sit with your Search results and work like any other job. Links are read by the laptop app (also when you paste on the tablet); sites behind a bot check are not worked around, so copy the text instead.
+- **Paste a job posting (Find jobs tab):** paste a link to a posting (LinkedIn, MyCareersFuture, company career pages and most job sites) and it is read and saved straight away, no AI: title, company, pay, location, job type, deadline, description and skills. Or paste a posting's text and press **✦ Add with AI**, or **Add without AI** with a title you type. Pasted jobs sit with your Search results and work like any other job. Links are read by the laptop app (also when you paste on the tablet); sites behind a bot check are not worked around, so copy the text instead.
 - **On any job:**
   - ✦ **ATS keywords** lists what the job asks for. Tap a keyword once for "I have this" or twice for "leave out".
   - ✦ **Tailor resume** and ✦ **Cover letter** write versions for that job; you stay on the job page.
@@ -63,9 +64,11 @@ On a Mac, closing the window does not quit AutoResume, so a tablet can still con
 - **One page, always, never below 8 pt:** every resume and cover letter is exactly one A4 page. Longer content is shrunk (never below 8 pt), then spaced more tightly, then shown with fewer bullet points per entry; the Resume tab says how many bullets were left off so you can choose what shows with Edit. Everything you enter stays stored, ranked most relevant first; the page shows the top of each list: at most 3 projects, 2 leadership roles and 18 technical skills. Tailored resumes are ranked by the AI for the job (Edit shows the stored rest, dimmed, and ↑ swaps one in); your base resume uses your order in Settings, which **✦ Rank by relevance** can sort for the roles you want.
 - **Save** and **Mark applied** keep track of jobs in the **Saved** and **Applied** tabs.
 
-## Use it from a tablet (optional)
+## Use it from a phone or tablet (optional)
 
-Keep AutoResume open on your laptop with the tablet on the same Wi-Fi. Settings shows an address like `http://192.168.1.20:4242`; open it in the tablet's browser and use **Add to Home Screen** (Safari: Share → Add to Home Screen). The tablet shares your details and jobs with the laptop and can generate resumes and cover letters; use **Print / Save PDF** for A4 output. Scraping and searching only run on the laptop.
+Keep AutoResume open on your laptop with the phone or tablet on the same Wi-Fi. Settings → **Phone and tablet access** shows an address like `http://192.168.1.20:4242`; open it in the phone's browser and use **Add to Home Screen** (Safari: Share → Add to Home Screen). The layout fits phone screens. Phones and tablets share your details and jobs with the laptop and can generate resumes and cover letters; use **Print / Save PDF** for A4 output. Scraping and searching run on the laptop.
+
+If the page won't load on the phone, Windows Firewall is usually blocking it on your home network: open **Windows Security → Firewall & network protection → Allow an app through firewall**, click **Change settings**, and tick **Private** next to **autoresume**. Also make sure the phone is on the same Wi-Fi (not mobile data or a guest network).
 
 Your data stays on your devices. Only the text you choose to send to your AI provider leaves them.
 

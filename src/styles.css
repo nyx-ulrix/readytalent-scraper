@@ -38,6 +38,12 @@ main { flex: 1; overflow: auto; }
 .jobs { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
 .list { border-right: 1px solid var(--line); overflow: auto; }
 .list .toolbar { position: sticky; top: 0; background: #fff; padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+/* Find jobs page: the scraping tools, one section each */
+.find-page { height: 100%; overflow: auto; padding: 16px; }
+.find-page > * { max-width: 980px; margin-left: auto; margin-right: auto; }
+.find-section { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 14px; margin-bottom: 14px; background: #fff; }
+.find-section h2 { margin: 0 0 6px; font-size: 16px; }
+.find-section label { margin-top: 10px; }
 /* Loading bars (native <progress>: no value = indeterminate) */
 progress.loading { width: 100%; height: 6px; accent-color: var(--accent, #2563eb); }
 progress.loading.inline { width: 90px; margin-right: 8px; vertical-align: middle; }
@@ -113,6 +119,26 @@ button.small { padding: 3px 9px; font-size: 12px; }
   .back { display: inline-block; }
 }
 
+/* Phones: one column, a swipeable tab bar, no empty "pick a job" panel under the list */
+@media (max-width: 700px) {
+  .tabs { overflow-x: auto; flex-wrap: nowrap; padding: 6px 8px; padding-top: calc(6px + env(safe-area-inset-top)); scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs .brand { display: none; }
+  .tabs button { white-space: nowrap; flex: 0 0 auto; padding: 8px 10px; }
+  .jobs:not(.has-sel) > .empty { display: none; }
+  .list .toolbar { padding: 10px; }
+  .detail { padding: 12px 14px 40px; }
+  .detail .actions button, .detail .actions a { flex: 1 1 auto; text-align: center; }
+  .find-page { padding: 10px; }
+  .find-section { padding: 10px 12px 12px; }
+  .settings { padding: 12px 12px 60px; }
+  .preview { padding: 8px 4px; }
+  .resume-tab .toolbar { padding: 8px 10px; }
+  .resume-tab .toolbar select { width: auto; max-width: 100%; min-width: 0; flex: 1 1 100%; }
+  input, select, textarea { font-size: 16px; } /* stops iOS zooming into fields */
+}
+
+.rank { font-size: 12px; color: var(--muted); min-width: 26px; text-align: right; }
 /* Settings */
 .settings { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
 .settings h2 { font-size: 15px; margin: 26px 0 4px; }

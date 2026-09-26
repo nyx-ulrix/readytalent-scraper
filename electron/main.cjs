@@ -24,10 +24,12 @@ const writeJson = (n, v) => fs.writeFileSync(file(n), JSON.stringify(v, null, 2)
 let mainWin = null;
 let rtWin = null;
 
+/** Addresses a phone or tablet on the same Wi-Fi can reach: skips virtual adapters (WSL, Hyper-V, VPNs, VMs) and self-assigned 169.254.x. */
 function lanUrls() {
   const out = [];
-  for (const list of Object.values(os.networkInterfaces())) {
-    for (const i of list || []) if (i.family === "IPv4" && !i.internal) out.push(`http://${i.address}:${PORT}`);
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (/vethernet|wsl|hyper-v|virtualbox|vmware|docker|loopback|tailscale|zerotier|vpn|bluetooth/i.test(name)) continue;
+    for (const i of list || []) if (i.family === "IPv4" && !i.internal && !i.address.startsWith("169.254.")) out.push(`http://${i.address}:${PORT}`);
   }
   return out;
 }
@@ -80,8 +82,16 @@ function serve() {
           let body = "";
           req.on("data", (c) => { body += c; if (body.length > 5e6) req.destroy(); });
           req.on("end", () => {
-            try { writeJson("state.json", JSON.parse(body)); json(res, { ok: true }); }
-            catch { json(res, { error: "bad json" }, 400); }
+            // Every save carries the revision it was based on; a device holding an older copy is refused
+            // (409) and has to fetch the latest and re-apply its own change, so it can't overwrite newer data.
+            let next;
+            try { next = JSON.parse(body); } catch { return json(res, { error: "bad json" }, 400); }
+            const cur = readJson("state.json", null);
+            const rev = Number(cur && cur._rev) || 0;
+            if (cur && cur._rev !== undefined && next._rev !== rev) return json(res, { error: "stale", rev }, 409);
+            next._rev = rev + 1;
+            writeJson("state.json", next);
+            json(res, { ok: true, rev: next._rev });
           });
           return;
         }
