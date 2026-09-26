@@ -1,7 +1,7 @@
 {
   "name": "autoresume",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "AutoResume - ReadyTalent job scraper with AI resume and cover letter (A4)",
   "author": "Malcolm Liew",
   "type": "module",
@@ -11,7 +11,7 @@
     "build": "vite build",
     "start": "vite build && electron .",
     "dist": "vite build && electron-builder --win nsis",
-    "test": "node test/boards.test.cjs && node test/ground.test.ts && node test/markdown.test.ts && node test/pay.test.ts && node test/linkify.test.ts && node test/geo.test.ts && node electron/scrape.test.cjs",
+    "test": "node test/boards.test.cjs && node test/ground.test.ts && node test/markdown.test.ts && node test/pay.test.ts && node test/linkify.test.ts && node test/geo.test.ts && node test/merge.test.ts && node electron/scrape.test.cjs",
     "dist:win": "vite build && electron-builder --win nsis --publish never",
     "dist:mac": "vite build && electron-builder --mac --arm64 --x64 --publish never"
   },

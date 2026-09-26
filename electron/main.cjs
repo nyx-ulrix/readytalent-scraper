@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
-const { searchBoards, stopBoards, showBoardWindow, scrapePosting } = require("./boards.cjs");
+const { searchBoards, stopBoards, showBoardWindow, scrapePosting, pageText } = require("./boards.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -60,6 +60,15 @@ function serve() {
         req.on("data", (c) => { body += c; if (body.length > 1e4) req.destroy(); });
         req.on("end", async () => {
           try { json(res, { job: await scrapePosting(JSON.parse(body || "{}").url, skillDictionary()) }); }
+          catch (e) { json(res, { error: String(e.message || e) }, 400); }
+        });
+        return;
+      }
+      if (url.pathname === "/api/page-text" && req.method === "POST") {
+        let body = "";
+        req.on("data", (c) => { body += c; if (body.length > 1e4) req.destroy(); });
+        req.on("end", async () => {
+          try { json(res, { text: await pageText(JSON.parse(body || "{}").url) }); }
           catch (e) { json(res, { error: String(e.message || e) }, 400); }
         });
         return;
@@ -270,7 +279,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
     for (const [id, j] of jobs) { if (!known.has(id)) added++; known.set(id, j); }
     const merged = [...known.values()].sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
     writeJson("board-jobs.json", merged);
-    return { found: jobs.size, added, total: merged.length, errors };
+    return { found: jobs.size, added, total: merged.length, errors, ids: [...jobs.keys()] };
   } finally { boardsBusy = false; }
 });
 ipcMain.handle("boards:stop", () => { stopBoards(); });

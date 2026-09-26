@@ -60,6 +60,16 @@ export async function scrapePosting(url: string): Promise<Job> {
   return out.job as Job;
 }
 
+/** Visible text of a public page, read by the laptop app (e.g. your portfolio). */
+export async function fetchPageText(url: string): Promise<string> {
+  let r: Response;
+  try { r = await fetch("/api/page-text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }); }
+  catch { throw new Error("Reading links needs the laptop app running. Paste the text instead."); }
+  const out = await r.json().catch(() => ({ error: "The laptop app needs updating to read links." }));
+  if (!r.ok || typeof out.text !== "string") throw new Error(out.error || "Couldn't read that link.");
+  return out.text;
+}
+
 export async function fetchBoardJobs(): Promise<Job[]> {
   try { const r = await fetch("/api/board-jobs"); return r.ok ? r.json() : []; } catch { return []; }
 }

@@ -325,9 +325,21 @@ async function scrapePosting(rawUrl, dictionary) {
   return postingJob(id ? `https://www.linkedin.com/jobs/view/${id}` : url, p, dictionary);
 }
 
+/** Visible text of any public page (e.g. the user's portfolio, for adding its details). */
+async function pageText(rawUrl) {
+  const { wc, code } = await load(publicUrl(String(rawUrl || "").trim()));
+  await wait(2500); // let the page's scripts render
+  const text = String(await wc.executeJavaScript("document.body ? document.body.innerText : ''"));
+  if (/just a moment|verify you are (a )?human|checking your browser|captcha|security check/i.test(text.slice(0, 3000)) || code === 403)
+    throw new Error("That site shows a bot check. Copy the page's text and paste it here instead.");
+  if (text.trim().length < 100) throw new Error("Couldn't read anything on that page (it may need a sign-in). Copy its text and paste it here instead.");
+  return text.slice(0, 40000);
+}
+
 module.exports = {
   searchBoards,
   scrapePosting,
+  pageText,
   stopBoards: () => { cancelled = true; },
   showBoardWindow: () => { const w = boardWindow(); w.show(); w.focus(); },
   _test: { skillsIn, indeedHost, passes, workFrom, empKey, postingJob, salaryText, linkedinId, publicUrl },

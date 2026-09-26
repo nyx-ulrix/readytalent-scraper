@@ -8,7 +8,8 @@ export type Job = {
   /** Normalised board fields for filtering: "Full-time", "Remote", "Entry level"... */
   employment?: string; workplace?: string; level?: string;
 };
-export type Target = { title: string; posting: string; terms: string[]; keywords: string[]; at: string };
+/** A job title the user targets; `jobs` keeps (with full details) the jobs found by "Search jobs like this". */
+export type Target = { title: string; posting: string; terms: string[]; keywords: string[]; at: string; jobs?: Job[] };
 export type Entry = { title: string; org: string; location?: string; dates: string; details: string[] };
 /** Extra resume sections beyond the built-in ones, e.g. "Competition", "Leadership & Co-Curricular Activities". */
 export type Section = { title: string; entries: Entry[] };
@@ -52,6 +53,8 @@ export type State = {
   pasted: Job[];
   /** Job titles the user targets: an AI-written example posting, search terms and key skills for finding similar jobs. */
   targets: Target[];
+  /** Job-list filters and sort, remembered per list ("rt", "boards", "saved", "applied"). */
+  listFilters: Record<string, Record<string, unknown>>;
   boardSearch: {
     location: string; linkedin: boolean; indeed: boolean; perTerm: number; days: number;
     jobTypes: string[]; workplace: string[]; levels: string[]; companyInclude: string; companyExclude: string;
@@ -115,7 +118,7 @@ export const DEFAULT_META: Meta = {
 };
 export const emptyEntry = (): Entry => ({ title: "", org: "", dates: "", details: [] });
 export const emptyProfile: Profile = { name: "", email: "", phone: "", location: "", portfolio: "", linkedin: "", github: "", links: "", summary: "", skills: [], experience: [], education: [], projects: [], awards: [], sections: [], additional: [] };
-export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, knownSkills: [], omitSkills: [], warnTokens: true, near: { place: "", km: 10 }, interests: [], roleSuggestions: [], searchTerms: [], pasted: [], targets: [], boardSearch: { location: "Singapore", linkedin: true, indeed: true, perTerm: 10, days: 14, jobTypes: [], workplace: [], levels: [], companyInclude: "", companyExclude: "" }, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
+export const defaultState: State = { profile: emptyProfile, provider: "gemini", geminiKey: "", openaiKey: "", qwenKey: "", anthropicKey: "", models: { gemini: "", openai: "", qwen: "", anthropic: "" }, about: "", applied: {}, generatedAt: {}, knownSkills: [], omitSkills: [], warnTokens: true, near: { place: "", km: 10 }, interests: [], roleSuggestions: [], searchTerms: [], pasted: [], targets: [], listFilters: {}, boardSearch: { location: "Singapore", linkedin: true, indeed: true, perTerm: 10, days: 14, jobTypes: [], workplace: [], levels: [], companyInclude: "", companyExclude: "" }, template: "standard", defaultsVersion: 2, tailored: {}, covers: {}, keywords: {}, saved: [], employmentType: "", course: "", skillsWant: [], skillsAvoid: [] };
 export const profileText = (p: Profile) =>
   [p.summary, p.skills.join(" "), ...[...p.experience, ...p.education, ...p.projects, ...(p.sections || []).flatMap((s) => s.entries)].flatMap((e) => [e.title, e.org, ...e.details]), ...p.awards, ...(p.additional || [])].join("\n");
 export const isDesktop = () => typeof window !== "undefined" && !!window.desktop;
@@ -125,7 +128,7 @@ declare global {
       openPortal: () => Promise<void>;
       scrape: () => Promise<{ added: number; total: number }>;
       savePdf: (name: string) => Promise<boolean>;
-      searchBoards: (opts: { terms: string[] } & State["boardSearch"]) => Promise<{ found: number; added: number; total: number; errors: string[] }>;
+      searchBoards: (opts: { terms: string[] } & State["boardSearch"]) => Promise<{ found: number; added: number; total: number; errors: string[]; ids?: string[] }>;
       stopBoards: () => Promise<void>;
       showBoardWindow: () => Promise<void>;
       removeBoardJobs: (ids: string[] | "all") => Promise<number>;

@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.4-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.4-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.4-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.5-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.5-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.5-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,14 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.5
+
+- **Update your details (Settings).** Add what's new from a newer resume, your portfolio or LinkedIn page, or pasted text. Nothing you already have is removed or reworded: new jobs, projects, bullet points and skills are added below yours, rewordings of bullets you already have are skipped, and **Undo** puts everything back.
+- **Targets tab.** Jobs found with **Search jobs like this** are kept under that job title, with their full details, and you pick the title from a dropdown.
+- **Filters are remembered.** Each job list keeps its filters, search text and sort between sessions.
+- **Loading bars** while scraping ReadyTalent, searching LinkedIn/Indeed and reading a pasted link.
+- **Tidier Search panel.** Search terms sit in fold-away **Ticked** and **Unticked** groups.
 
 ## What's new in 1.2.4
 

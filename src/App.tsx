@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { likeScore } from "./ground";
-import { fetchBoardJobs, fetchJobs, fetchMeta, geocode, scrapePosting, useAppState } from "./store";
+import { fetchBoardJobs, fetchJobs, fetchMeta, fetchPageText, geocode, scrapePosting, useAppState } from "./store";
+import { mergeProfile, mergeSummary } from "./merge";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
 import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
@@ -17,11 +18,11 @@ import { monthlyPay, payPasses } from "./pay";
 import { MAX_PROJECTS, MAX_SKILLS, isLeadership, sectionKey, sectionLimit, shownCount } from "./limits";
 import { DEFAULT_META, defaultState, emptyEntry, isDesktop, profileText, type Entry, type Job, type Meta, type Profile, type State, type Template } from "./types";
 
-type Tab = "jobs" | "search" | "saved" | "applied" | "resume" | "settings";
-type ListMode = "rt" | "boards" | "saved" | "applied";
+type Tab = "jobs" | "search" | "targets" | "saved" | "applied" | "resume" | "settings";
+type ListMode = "rt" | "boards" | "targets" | "saved" | "applied";
 type Update = (patch: Partial<State> | ((s: State) => State)) => void;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
-const TAB_LABEL: Record<Tab, string> = { jobs: "ReadyTalent", search: "Search", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
+const TAB_LABEL: Record<Tab, string> = { jobs: "ReadyTalent", search: "Search", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", settings: "Settings" };
 const SOURCE_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", pasted: "Pasted" } as const;
 const sourceOf = (j: Job) => (j.source ? SOURCE_LABEL[j.source] : "ReadyTalent");
 
@@ -47,7 +48,9 @@ export default function App() {
   const [sel, setSelMap] = useState<Partial<Record<Tab, Job | null>>>({});
   const [doc, setDoc] = useState<{ kind: "resume" | "letter"; jobId: string }>({ kind: "resume", jobId: "" });
   useEffect(() => { fetchJobs().then(setJobs); fetchBoardJobs().then(setBoardJobs); }, []);
-  const allJobs = useMemo(() => [...jobs, ...(state.pasted || []), ...boardJobs], [jobs, boardJobs, state.pasted]);
+  // Every job once (target copies keep their details even after search results are cleared).
+  const allJobs = useMemo(() => [...new Map([...(state.targets || []).flatMap((t) => t.jobs || []), ...boardJobs, ...(state.pasted || []), ...jobs].map((j) => [j.id, j])).values()], [jobs, boardJobs, state.pasted, state.targets]);
+  const targetJobs = (state.targets || []).reduce((n, t) => n + (t.jobs || []).length, 0);
   if (!ready) return null;
   const open = (kind: "resume" | "letter", jobId: string) => { setDoc({ kind, jobId }); setTab("resume"); };
   const selFor = (t: Tab) => ({ sel: sel[t] || null, setSel: (j: Job | null) => setSelMap((m) => ({ ...m, [t]: j })) });
@@ -58,15 +61,16 @@ export default function App() {
     <div className="layout">
       <nav className="tabs app-chrome">
         <span className="brand">AutoResume</span>
-        {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
+        {(Object.keys(TAB_LABEL) as Tab[]).filter((t) => t !== "targets" || targetJobs > 0).map((t) => (
           <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-            {TAB_LABEL[t]}{t === "saved" && savedJobs.length ? ` (${savedJobs.length})` : ""}{t === "applied" && appliedJobs.length ? ` (${appliedJobs.length})` : ""}
+            {TAB_LABEL[t]}{t === "targets" ? ` (${targetJobs})` : ""}{t === "saved" && savedJobs.length ? ` (${savedJobs.length})` : ""}{t === "applied" && appliedJobs.length ? ` (${appliedJobs.length})` : ""}
           </button>
         ))}
       </nav>
       <main>
         {tab === "jobs" && <Jobs mode="rt" jobs={jobs} setJobs={setJobs} {...common} {...selFor("jobs")} />}
         {tab === "search" && <SearchPage boardJobs={boardJobs} setBoardJobs={setBoardJobs} {...common} {...selFor("search")} />}
+        {tab === "targets" && <TargetsPage {...common} {...selFor("targets")} />}
         {tab === "saved" && <Jobs mode="saved" jobs={savedJobs} {...common} {...selFor("saved")} />}
         {tab === "applied" && <Jobs mode="applied" jobs={appliedJobs} {...common} {...selFor("applied")} />}
         {tab === "resume" && <ResumeTab state={state} update={update} jobs={allJobs} doc={doc} setDoc={setDoc} />}
@@ -83,16 +87,20 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode;
 }) {
   const rt = mode === "rt";
-  const [src, setSrc] = useState("");
-  const [emp, setEmp] = useState("");
-  const [work, setWork] = useState("");
-  const [lvl, setLvl] = useState("");
-  const [company, setCompany] = useState("");
+  /** Filters and sort are remembered for each list (ReadyTalent, Search, Saved, Applied), across restarts. */
+  const kept = state.listFilters?.[mode] || {};
+  const keep = <T,>(k: string, def: T): [T, (v: T) => void] =>
+    [(kept[k] as T | undefined) ?? def, (v: T) => update((s) => ({ ...s, listFilters: { ...(s.listFilters || {}), [mode]: { ...(s.listFilters?.[mode] || {}), [k]: v } } }))];
+  const [src, setSrc] = keep("src", "");
+  const [emp, setEmp] = keep("emp", "");
+  const [work, setWork] = keep("work", "");
+  const [lvl, setLvl] = keep("lvl", "");
+  const [company, setCompany] = keep("company", "");
   const empOf = (j: Job) => j.employment || (j.source ? "" : j.type);
   const distinct = (f: (j: Job) => string | undefined) => [...new Set(jobs.flatMap((j) => (f(j) || "").split(/\s*,\s*/)).filter(Boolean))].sort();
-  const [q, setQ] = useState("");
-  const [onlySaved, setOnlySaved] = useState(false);
-  const [appliedFilter, setAppliedFilter] = useState<"" | "applied" | "open">("");
+  const [q, setQ] = keep("q", "");
+  const [onlySaved, setOnlySaved] = keep("onlySaved", false);
+  const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open">("appliedFilter", "");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
@@ -102,11 +110,11 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
   const options = (fromMeta: string[], fromJobs: string[]) => [...new Set([...fromMeta, ...fromJobs.filter(Boolean).sort()])];
   const types = useMemo(() => options(meta.employmentTypes, jobs.map((j) => j.type)), [meta, jobs]);
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
-  const [sort, setSort] = useState<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>(mode === "applied" ? "applied" : "posted");
-  const [hideExpired, setHideExpired] = useState(true);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [minPay, setMinPay] = useState("");
-  const [payListed, setPayListed] = useState(false);
+  const [sort, setSort] = keep<"posted" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>("sort", mode === "applied" ? "applied" : "posted");
+  const [hideExpired, setHideExpired] = keep("hideExpired", true);
+  const [filtersOpen, setFiltersOpen] = keep("filtersOpen", false);
+  const [minPay, setMinPay] = keep("minPay", "");
+  const [payListed, setPayListed] = keep("payListed", false);
   const pay = Number(minPay) > 0 ? String(Number(minPay)) : payListed ? "shown" : "";
   // Proximity: coordinates for your place and for each job address (looked up on demand, cached by the laptop app).
   const near = { ...defaultState.near, ...(state.near || {}) };
@@ -191,10 +199,11 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       title: (a, b) => a.title.localeCompare(b.title),
       company: (a, b) => a.company.localeCompare(b.company),
     };
-    return list.sort(cmp[sort]);
+    return list.sort(cmp[sort] || cmp.posted); // a remembered sort whose target was removed
   }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets]);
 
-  useEffect(() => window.desktop?.onProgress((p) => setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`)), []);
+  const [prog, setProg] = useState<{ i: number; n: number } | null>(null);
+  useEffect(() => window.desktop?.onProgress((p) => { setProg(p.n ? { i: p.i, n: p.n } : null); setStatus(p.msg || `Fetching job ${p.i} of ${p.n}…`); }), []);
 
   const scrape = async () => {
     setBusy(true); setStatus("Scraping…");
@@ -204,7 +213,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
       setMeta(await fetchMeta());
       setStatus(`Done: ${r.added} new, ${r.total} total.`);
     } catch (e) { setStatus((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); }
-    setBusy(false);
+    setBusy(false); setProg(null);
   };
 
   return (
@@ -220,6 +229,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
           ) : (
             <div className="small muted">Scraping runs on the laptop app. This device shows the jobs it saved.</div>
           ))}
+          {busy && (prog ? <progress className="loading" value={prog.i} max={prog.n} /> : <progress className="loading" />)}
           <div className="status">{status || `${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
           <input placeholder="Search title, company, location, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
           <details className="filters" open={filtersOpen} onToggle={(e) => setFiltersOpen((e.target as HTMLDetailsElement).open)}>
@@ -327,7 +337,7 @@ function Jobs({ mode, jobs, setJobs, state, update, sel, setSel, open, header }:
             <div className="m">{[!rt ? sourceOf(j) : "", j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
         ))}
-        {!shown.length && <div className="empty">{jobs.length ? "No matches." : { rt: "No jobs yet. Save your ReadyTalent sign-in in Settings, then Scrape.", boards: "No results yet. Pick search terms above and press Search.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}
+        {!shown.length && <div className="empty">{jobs.length ? "No matches." : { rt: "No jobs yet. Save your ReadyTalent sign-in in Settings, then Scrape.", boards: "No results yet. Pick search terms above and press Search.", targets: "No jobs for this title yet. On the Search tab, open it under \"Target a specific job title\" and press Search jobs like this.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}
       </aside>
       {sel ? <Detail job={sel} state={state} update={update} back={() => setSel(null)} open={open} /> : (
         <div className="empty app-chrome">Pick a job to see its description, required skills and salary, then generate a tailored resume or cover letter.</div>
@@ -502,7 +512,7 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
       const kept = (s.searchTerms || []).map((x) => ({ ...x, on: t.terms.some((y) => y.toLowerCase() === x.term.toLowerCase()) || (!only && x.on) }));
       return { ...s, searchTerms: [...kept, ...t.terms.filter((y) => !have.has(y.toLowerCase())).map((term) => ({ term, on: true }))] };
     });
-    if (only && isDesktop()) void search(t.terms);
+    if (only && isDesktop()) void search(t.terms, t.title);
   };
   const ai = async (kind: "roles" | "terms" | "target", fn: () => Promise<void>) => {
     setBusy(kind); setErr("");
@@ -525,11 +535,17 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
     update((s) => ({ ...s, interests: next, roleSuggestions: (s.roleSuggestions || []).filter((x) => x.toLowerCase() !== r.toLowerCase()) }));
     addTerms(r); // the role itself is a search term straight away
   };
-  const search = async (list = onTerms) => {
+  /** With `target`, the jobs this search finds are also kept (with their details) under that title in the Targets tab. */
+  const search = async (list = onTerms, target?: string) => {
     setBusy("search"); setErr(""); setStatus("Starting search…");
     try {
       const r = await window.desktop!.searchBoards({ ...opts, terms: list });
-      setBoardJobs(await fetchBoardJobs());
+      const fresh = await fetchBoardJobs();
+      setBoardJobs(fresh);
+      if (target && r.ids) {
+        const hits = fresh.filter((j) => r.ids!.includes(j.id));
+        update((s) => ({ ...s, targets: (s.targets || []).map((t) => (t.title !== target ? t : { ...t, jobs: [...hits, ...(t.jobs || []).filter((j) => !r.ids!.includes(j.id))] })) }));
+      }
       setStatus(`Done: ${r.found} jobs seen, ${r.added} new, ${r.total} stored.`);
       if (r.errors.length) setErr(r.errors.join(" "));
     } catch (e) { setErr((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); setStatus(""); }
@@ -538,7 +554,7 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
 
   const panel = (
     <details className="search-panel app-chrome">
-      <summary>Search LinkedIn and Indeed{onTerms.length ? ` · ${onTerms.length} terms ticked` : ""}{busy === "search" && status ? ` · ${status}` : ""}{!busy && err ? " · last search had problems (open for details)" : ""}</summary>
+      <summary>{busy === "search" && <progress className="loading inline" />}Search LinkedIn and Indeed{onTerms.length ? ` · ${onTerms.length} terms ticked` : ""}{busy === "search" && status ? ` · ${status}` : ""}{!busy && err ? " · last search had problems (open for details)" : ""}</summary>
       <label>Roles you are interested in (press Enter to add; each one is also added as a search term)</label>
       <ChipInput items={interests} placeholder="e.g. Project Manager, Technical Sales" onAdd={(v) => v.split(/[,;]+/).map((x) => x.trim()).filter(Boolean).forEach(addInterest)} onRemove={(r) => update({ interests: interests.filter((x) => x !== r) })} />
       <div className="row" style={{ marginTop: 6 }}>
@@ -572,14 +588,23 @@ function SearchPage({ boardJobs, setBoardJobs, state, update, sel, setSel, open 
       ))}
 
       <label>Search terms (click to tick or untick; only ticked terms are searched)</label>
-      <div className="chips">
-        {terms.map((t) => (
-          <span key={t.term} className={`chip term ${t.on ? "hit" : ""}`}>
-            <button className="chip-toggle" onClick={() => update((s) => ({ ...s, searchTerms: s.searchTerms.map((x) => (x.term === t.term ? { ...x, on: !x.on } : x)) }))}>{t.on ? "✓ " : ""}{t.term}</button>
-            <button className="chip-x" onClick={() => update((s) => ({ ...s, searchTerms: s.searchTerms.filter((x) => x.term !== t.term) }))} title="Remove">×</button>
-          </span>
-        ))}
-      </div>
+      {([[true, "Ticked (searched)"], [false, "Unticked"]] as const).map(([on, label]) => {
+        const group = terms.filter((t) => t.on === on);
+        return (
+          <details key={label} className="term-group">
+            <summary>{label} <span className="small muted">({group.length})</span></summary>
+            <div className="chips">
+              {group.map((t) => (
+                <span key={t.term} className={`chip term ${t.on ? "hit" : ""}`}>
+                  <button className="chip-toggle" title={t.on ? "Untick" : "Tick"} onClick={() => update((s) => ({ ...s, searchTerms: s.searchTerms.map((x) => (x.term === t.term ? { ...x, on: !x.on } : x)) }))}>{t.on ? "✓ " : ""}{t.term}</button>
+                  <button className="chip-x" onClick={() => update((s) => ({ ...s, searchTerms: s.searchTerms.filter((x) => x.term !== t.term) }))} title="Remove">×</button>
+                </span>
+              ))}
+              {!group.length && <span className="small muted">None.</span>}
+            </div>
+          </details>
+        );
+      })}
       <div className="row" style={{ marginTop: 6 }}>
         <input value={termDraft} placeholder="Type your own search terms, e.g. project manager, technical sales" onChange={(e) => setTermDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && termDraft.trim()) { addTerms(termDraft); setTermDraft(""); } }} style={{ flex: 1, minWidth: 220 }} />
@@ -782,9 +807,10 @@ function Settings({ state, update }: { state: State; update: Update }) {
       </div>
 
       <h2>Your details</h2>
-      <div className="small muted">Import from your current resume (PDF, photo or Markdown .md; the AI reads and OCRs it), then check the fields below.</div>
+      <UpdateDetails state={state} update={update} />
+      <div className="small muted" style={{ marginTop: 12 }}>Or start over from a resume (PDF, photo or Markdown .md; the AI reads and OCRs it): this replaces the details below.</div>
       <div className="actions">
-        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>{importing ? "Reading resume…" : "Upload resume (PDF / image / MD)"}</span>
+        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>{importing ? "Reading resume…" : "Replace with a resume (PDF / image / MD)"}</span>
           <input type="file" accept="application/pdf,image/*,.md,.markdown,.txt,text/markdown,text/plain" style={{ display: "none" }} disabled={importing} onChange={async (e) => {
             const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
             const exactTemplate = /\.(md|markdown|txt)$/i.test(f.name) && (await f.text()).trimStart().startsWith(MARKER);
@@ -957,6 +983,83 @@ function ModelPicker({ state, update }: { state: State; update: Update }) {
   );
 }
 
+/** Jobs found with "Search jobs like this", grouped by target job title (pick one from the dropdown). */
+function TargetsPage({ state, update, sel, setSel, open }: { state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void; open: (kind: "resume" | "letter", jobId: string) => void }) {
+  const withJobs = (state.targets || []).filter((t) => (t.jobs || []).length);
+  const [pick, setPick] = useState(withJobs[0]?.title || "");
+  const t = withJobs.find((x) => x.title === pick) || withJobs[0];
+  const header = (
+    <div className="search-panel app-chrome">
+      <div className="row" style={{ alignItems: "center" }}>
+        <b>Job title</b>
+        <select value={t?.title || ""} onChange={(e) => { setPick(e.target.value); setSel(null); }} style={{ flex: 1, minWidth: 200 }}>
+          {withJobs.map((x) => <option key={x.title} value={x.title}>{x.title} ({(x.jobs || []).length})</option>)}
+        </select>
+        {t && <button className="ghost small" onClick={() => { if (confirm(`Clear the ${(t.jobs || []).length} jobs stored under "${t.title}"? Saved, applied and tailored items stay.`)) { update((s) => ({ ...s, targets: (s.targets || []).map((x) => (x.title === t.title ? { ...x, jobs: [] } : x)) })); setSel(null); } }}>Clear this list</button>}
+      </div>
+      <div className="small muted">Jobs found with "Search jobs like this" for each title, kept with their full details. Sort by "Most like: {t?.title}" to see the closest matches first.</div>
+    </div>
+  );
+  return (
+    <div className="search-page targets-page">
+      <Jobs mode="targets" jobs={t?.jobs || []} state={state} update={update} sel={sel} setSel={setSel} open={open} header={header} />
+    </div>
+  );
+}
+
+/**
+ * Add new details from a newer resume, a page (e.g. your portfolio) or pasted text. Nothing you already have is
+ * deleted or reworded; new jobs, projects, bullets and skills are added below yours. Undo restores the previous details.
+ */
+function UpdateDetails({ state, update }: { state: State; update: Update }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [before, setBefore] = useState<Profile | null>(null);
+  const isLink = LINK.test(text.trim());
+  const run = async (file: File, label: string) => {
+    setErr(""); setMsg("");
+    try {
+      const exact = /\.(md|markdown|txt)$/i.test(file.name) && (await file.text()).trimStart().startsWith(MARKER);
+      if (!exact && !aiConfirm(state, `Read ${label} with the AI and add anything new to your details? Nothing you have is removed.`)) return;
+      setBusy(`Reading ${label}…`);
+      const found = await parseResume(aiCfg(state), file);
+      const prev = state.profile;
+      const { added } = mergeProfile(prev, found);
+      update((s) => ({ ...s, profile: mergeProfile(s.profile, found).profile }));
+      setBefore(prev);
+      setMsg(`Added from ${label}: ${mergeSummary(added)}. New items are below yours in each list; review them below.`);
+      if (added.entries + added.bullets + added.skills + added.other === 0) setBefore(null);
+      setText("");
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
+  const fromBox = async () => {
+    if (!isLink) return run(new File([text], "pasted.md", { type: "text/markdown" }), "the pasted text");
+    setErr(""); setBusy("Reading the page…");
+    try { const page = await fetchPageText(text.trim()); setBusy(""); await run(new File([page], "page.md", { type: "text/markdown" }), text.trim()); }
+    catch (e) { setErr((e as Error).message); setBusy(""); }
+  };
+  return (
+    <div className="card" style={{ marginTop: 8 }}>
+      <b>Update your details</b>
+      <div className="small muted">Add what's new from a newer resume, your portfolio or LinkedIn page, or any text about you. Nothing you already have is removed or reworded: new jobs, projects, bullet points and skills are added below yours.</div>
+      <textarea rows={3} value={text} disabled={!!busy} onChange={(e) => setText(e.target.value)} placeholder="Paste text about your experience, or a link (e.g. https://yourname.com)" />
+      <div className="actions">
+        <button disabled={!!busy || !text.trim()} title="Uses AI tokens" onClick={() => void fromBox()}>✦ Add to my details{isLink ? " from link" : ""}</button>
+        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>Add from a resume file (PDF / image / MD)</span>
+          <input type="file" accept="application/pdf,image/*,.md,.markdown,.txt,text/markdown,text/plain" style={{ display: "none" }} disabled={!!busy}
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void run(f, `"${f.name}"`); }} />
+        </label>
+        {before && <button className="ghost" onClick={() => { update({ profile: before }); setBefore(null); setMsg("Undone: your details are as they were."); }}>Undo</button>}
+      </div>
+      {busy && <div className="status">{busy}</div>}
+      {msg && <div className="status" style={{ color: "var(--ok)" }}>{msg}</div>}
+      {err && <div className="status err">{err}</div>}
+    </div>
+  );
+}
+
 /** A lone pasted link (not a posting's text). */
 const LINK = /^https?:\/\/\S+$/i;
 
@@ -1025,7 +1128,7 @@ function PastePosting({ state, update, onAdded }: { state: State; update: Update
             </div>
           </>
         ) : null}
-        {busy && <div className="status">{busy}</div>}
+        {busy && <div className="status"><progress className="loading inline" />{busy}</div>}
         {note && <div className="status" style={{ color: "var(--ok)" }}>{note}</div>}
         {err && <div className="status err">{err}</div>}
       </div>
