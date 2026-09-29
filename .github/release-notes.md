@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.11-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.11-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.11-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.12-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.12-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.12-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,10 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.12
+
+- **Fixed:** job rows scrolled over the job list's search box and filters instead of underneath them.
 
 ## What's new in 1.2.11
 
