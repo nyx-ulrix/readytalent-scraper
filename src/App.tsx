@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { likeScore } from "./ground";
-import { fetchBoardJobs, fetchJobs, fetchMeta, fetchPageText, geocode, scrapePosting, useAppState } from "./store";
+import { clearResults, type ClearScope, fetchBoardJobs, fetchJobs, fetchMeta, fetchPageText, geocode, scrapePosting, useAppState } from "./store";
 import { mergeProfile, mergeSummary } from "./merge";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
 import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
@@ -81,7 +81,8 @@ export default function App() {
   const [boardJobs, setBoardJobs] = useState<Job[]>([]);
   const [sel, setSelMap] = useState<Partial<Record<Tab, Job | null>>>({});
   const [doc, setDoc] = useState<{ kind: "resume" | "letter"; jobId: string }>({ kind: "resume", jobId: "" });
-  useEffect(() => { fetchJobs().then(setJobs); fetchBoardJobs().then(setBoardJobs); }, []);
+  const reloadJobs = () => { fetchJobs().then(setJobs); fetchBoardJobs().then(setBoardJobs); };
+  useEffect(reloadJobs, []);
   // Every job once (target copies keep their details even after search results are cleared).
   const allJobs = useMemo(() => [...new Map([...(state.targets || []).flatMap((t) => t.jobs || []), ...boardJobs, ...(state.pasted || []), ...jobs].map((j) => [j.id, j])).values()], [jobs, boardJobs, state.pasted, state.targets]);
   const targetJobs = (state.targets || []).reduce((n, t) => n + (t.jobs || []).length, 0);
@@ -103,7 +104,7 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {tab === "jobs" && <Jobs mode="all" jobs={allJobs} {...common} {...selFor("jobs")} />}
+        {tab === "jobs" && <Jobs mode="all" jobs={allJobs} onCleared={reloadJobs} {...common} {...selFor("jobs")} />}
         {tab === "find" && <FindPage jobs={jobs} setJobs={setJobs} boardJobs={boardJobs} setBoardJobs={setBoardJobs} state={state} update={update}
           onView={(j) => { if (j) selFor("jobs").setSel(j); setTab("jobs"); }} />}
         {tab === "targets" && <TargetsPage setBoardJobs={setBoardJobs} {...common} {...selFor("targets")} />}
@@ -119,9 +120,9 @@ export default function App() {
 
 /* ---------------- Jobs ---------------- */
 
-function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
+function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared }: {
   mode: ListMode; jobs: Job[]; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
-  open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode;
+  open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode; onCleared?: () => void;
 }) {
   const rt = mode === "all"; // show the ReadyTalent employment type / programme dropdowns
   /** Filters and sort are remembered for each list (ReadyTalent, Search, Saved, Applied), across restarts. */
@@ -147,6 +148,10 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
   const courses = useMemo(() => options(meta.programmes, jobs.flatMap((j) => j.programmes || [])), [meta, jobs]);
   const [sort, setSort] = keep<"posted" | "fetched" | "deadline" | "salary" | "title" | "company" | "applied" | "nearest" | `like:${number}`>("sort", mode === "applied" ? "applied" : "posted");
   const [hideExpired, setHideExpired] = keep("hideExpired", true);
+  const [showRemoved, setShowRemoved] = keep("showRemoved", false);
+  const hidden = new Set(state.hidden || []);
+  const hidesRemoved = mode === "all" || mode === "targets"; // Saved / Applied always show what you saved or applied to
+  const removedHere = hidesRemoved ? jobs.filter((j) => hidden.has(j.id)).length : 0;
   const [filtersOpen, setFiltersOpen] = keep("filtersOpen", false);
   const [minPay, setMinPay] = keep("minPay", "");
   const [payListed, setPayListed] = keep("payListed", false);
@@ -216,6 +221,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
       (!onlySaved || state.saved.includes(j.id)) &&
       (appliedFilter !== "applied" || !!state.applied?.[j.id]) && (appliedFilter !== "open" || !state.applied?.[j.id]) &&
       (!hideExpired || !j.expired) &&
+      (!hidesRemoved || showRemoved || !hidden.has(j.id)) &&
       payPasses(j.salary, pay) &&
       (!origin || !(near.km > 0) || (distOf(j) ?? Infinity) <= near.km) &&
       (!needle || [j.title, j.company, j.location, j.skills.join(" "), j.description].join(" ").toLowerCase().includes(needle));
@@ -237,14 +243,39 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort] || cmp.posted); // a remembered sort whose target was removed
-  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets]);
+  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets, state.hidden, showRemoved]);
 
   return (
     <div className={`jobs ${sel ? "has-sel" : ""}`}>
       {header}
       <aside className="list app-chrome">
         <div className="toolbar">
-          <div className="status">{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`}</div>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div className="status">{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`.replace(/\s+/g, " ")}{removedHere > 0 && !showRemoved ? ` · ${removedHere} removed` : ""}</div>
+            {mode === "all" && onCleared && (() => {
+              // Kept whatever you clear: saved, applied, and jobs with a tailored resume or letter (pasted jobs are never cleared).
+              const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
+              const scopes: [ClearScope, string, string | null][] = [["all", "All sources", null], ["readytalent", "ReadyTalent", "ReadyTalent"], ["linkedin", "LinkedIn", "LinkedIn"], ["indeed", "Indeed", "Indeed"]];
+              const count = (label: string | null) => jobs.filter((j) => j.source !== "pasted" && (!label || sourceOf(j) === label) && !keepIds.includes(j.id)).length;
+              const clear = async (scope: ClearScope, label: string, source: string | null) => {
+                const n = count(source);
+                if (!n) return;
+                if (!(await confirmDelete(`Clear ${n} ${source ? `${label} ` : ""}results? Jobs you saved, applied to, pasted yourself, or made a resume or cover letter for are kept.`))) return;
+                try {
+                  await clearResults(keepIds, scope);
+                  update((s) => ({ ...s, targets: (s.targets || []).map((t) => ({ ...t, jobs: (t.jobs || []).filter((j) => keepIds.includes(j.id) || (source !== null && sourceOf(j) !== source)) })) }));
+                  setSel(null); onCleared();
+                } catch (e) { alert((e as Error).message); }
+              };
+              return (
+                <select className="clear-menu" value="" title="Delete scraped results (saved, applied and pasted jobs are kept)"
+                  onChange={(e) => { const sc = scopes.find(([k]) => k === e.target.value); if (sc) void clear(sc[0], sc[1], sc[2]); }}>
+                  <option value="">Clear results…</option>
+                  {scopes.map(([k, label, source]) => <option key={k} value={k} disabled={!count(source)}>{label} ({count(source)})</option>)}
+                </select>
+              );
+            })()}
+          </div>
           <input placeholder="Search title, company, location, skills…" value={q} onChange={(e) => setQ(e.target.value)} />
           <details className="filters" open={filtersOpen} onToggle={(e) => setFiltersOpen((e.target as HTMLDetailsElement).open)}>
           <summary>
@@ -321,6 +352,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
           </div>
           <div className="row">
             <label className="small muted" style={{ margin: 0, flex: 1 }}><input type="checkbox" checked={hideExpired} onChange={(e) => setHideExpired(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Hide delisted · {shown.length} of {jobs.length}</label>
+            {removedHere > 0 && <label className="small muted" style={{ margin: 0 }}><input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Show removed ({removedHere})</label>}
             <button className="ghost" onClick={() => setShowSkills(!showSkills)}>Skills{skillsWant.length + skillsAvoid.length ? ` (${skillsWant.length + skillsAvoid.length})` : ""}</button>
             {(activeFilters || q) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); setAppliedFilter(""); setOnlySaved(false); setHideExpired(true); if (origin) { setNearDraft(""); void locate(""); } }}>Clear</button> : null}
           </div>
@@ -347,7 +379,9 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header }: {
           {!filtersOpen && geoStatus && <div className="small muted">{geoStatus}</div>}
         </div>
         {shown.map((j) => (
-          <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}`} onClick={() => setSel(j)}>
+          <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
+            {hidesRemoved && <button className="ghost small row-x" title={hidden.has(j.id) ? "Bring this job back" : "Not interested: remove from the list"} aria-label={hidden.has(j.id) ? "Restore job" : "Remove job"}
+              onClick={(ev) => { ev.stopPropagation(); update((s) => { const h = new Set(s.hidden || []); if (h.has(j.id)) h.delete(j.id); else h.add(j.id); return { ...s, hidden: [...h] }; }); if (sel?.id === j.id && !hidden.has(j.id)) setSel(null); }}>{hidden.has(j.id) ? "↺" : "✕"}</button>}
             <div className="t">{state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
@@ -413,6 +447,9 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
         </div>
         <div className="actions">
           <button className="ghost" onClick={() => update({ saved: saved ? state.saved.filter((i) => i !== job.id) : [...state.saved, job.id] })}>{saved ? "♥ Saved" : "♡ Save"}</button>
+          <button className="ghost" title={(state.hidden || []).includes(job.id) ? "Show this job in your lists again" : "Remove this job from Jobs and Targets (Filters → Show removed brings it back)"}
+            onClick={() => { const off = (state.hidden || []).includes(job.id); update((s) => ({ ...s, hidden: off ? (s.hidden || []).filter((i) => i !== job.id) : [...(s.hidden || []), job.id] })); if (!off) back(); }}>
+            {(state.hidden || []).includes(job.id) ? "↺ Restore job" : "✕ Not interested"}</button>
           <button className={appliedOn ? "" : "ghost"} title={appliedOn ? "Click to undo" : "Mark this job as applied"} onClick={() => update((s) => { const a = { ...(s.applied || {}) }; if (a[job.id]) delete a[job.id]; else a[job.id] = new Date().toISOString(); return { ...s, applied: a }; })}>
             {appliedOn ? `✓ Applied ${new Date(appliedOn).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark applied"}
           </button>
@@ -625,7 +662,10 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
           <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={() => void search()}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
           {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
           <button className="ghost small" onClick={() => window.desktop!.showBoardWindow()} title="Shows the hidden browser window, e.g. to complete an Indeed verification yourself">Open Indeed window</button>
-          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => { if (await confirmDelete(`Delete all ${boardJobs.length} stored LinkedIn/Indeed results? Saved, applied and tailored items stay.`)) { await window.desktop!.removeBoardJobs("all"); setBoardJobs([]); } }}>Clear results</button>}
+          {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => {
+            const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
+            if (await confirmDelete(`Delete the stored LinkedIn/Indeed results? Jobs you saved, applied to or made a resume or letter for are kept.`)) { await clearResults(keepIds, "boards"); setBoardJobs(await fetchBoardJobs()); }
+          }}>Clear results</button>}
         </div>
       ) : <div className="small muted">Searching runs on the laptop app. This device shows the stored results.</div>}
       <div className="status">{status}{!busy && /^Done/.test(status) && <> <button className="ghost small" onClick={() => onView()}>View in Jobs</button></>}</div>

@@ -75,6 +75,33 @@ function serve() {
         });
         return;
       }
+      if (url.pathname === "/api/clear-results" && req.method === "POST") {
+        // Deletes stored scrape results except the ids sent in `keep` (saved, applied, tailored...), for one source
+        // ("readytalent", "linkedin", "indeed"), both boards ("boards") or everything ("all").
+        let body = "";
+        req.on("data", (c) => { body += c; if (body.length > 2e6) req.destroy(); });
+        req.on("end", () => {
+          try {
+            const { keep = [], scope = "all" } = JSON.parse(body || "{}");
+            const ids = new Set(keep.map(String));
+            const any = () => true;
+            const files = {
+              all: [["jobs.json", any], ["board-jobs.json", any]], readytalent: [["jobs.json", any]], boards: [["board-jobs.json", any]],
+              linkedin: [["board-jobs.json", (j) => j.source === "linkedin"]], indeed: [["board-jobs.json", (j) => j.source === "indeed"]],
+            }[scope];
+            if (!files) return json(res, { error: "unknown source" }, 400);
+            let removed = 0;
+            for (const [name, match] of files) {
+              const list = readJson(name, []);
+              const kept = list.filter((j) => ids.has(String(j.id)) || !match(j));
+              removed += list.length - kept.length;
+              writeJson(name, kept);
+            }
+            json(res, { removed });
+          } catch (e) { json(res, { error: String(e.message || e) }, 400); }
+        });
+        return;
+      }
       if (url.pathname === "/api/info") return json(res, { lan: lanUrls() });
       if (url.pathname === "/api/state") {
         if (req.method === "GET") return json(res, readJson("state.json", null));

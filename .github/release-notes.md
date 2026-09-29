@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.10-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.10-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.10-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.11-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.11-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.2.11-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,12 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.2.11
+
+- **Not interested.** Remove a job you don't want with the ✕ on its row or **✕ Not interested** on the job. It stays hidden even if it's scraped again; **Filters → Show removed** lists them and ↺ brings one back.
+- **Clear results by source.** The Jobs tab's **Clear results…** menu clears all sources, or only ReadyTalent, LinkedIn or Indeed, showing how many jobs each would delete. Jobs you saved, applied to, pasted yourself, or made a resume or cover letter for are always kept. You confirm by typing **delete**.
+- **Fixed:** the LinkedIn/Indeed **Clear results** button on Find jobs deleted saved and applied LinkedIn/Indeed jobs too. It now keeps them.
 
 ## What's new in 1.2.10
 

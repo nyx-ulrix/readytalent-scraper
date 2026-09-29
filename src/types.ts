@@ -56,6 +56,8 @@ export type State = {
   pasted: Job[];
   /** Job titles the user targets: an AI-written example posting, search terms and key skills for finding similar jobs. */
   targets: Target[];
+  /** Jobs you marked "Not interested": hidden from Jobs and Targets (and kept hidden when scraped again). */
+  hidden?: string[];
   /** Job-list filters and sort, remembered per list ("rt", "boards", "saved", "applied"). */
   listFilters: Record<string, Record<string, unknown>>;
   boardSearch: {

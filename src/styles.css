@@ -138,6 +138,13 @@ button.small { padding: 3px 9px; font-size: 12px; }
   input, select, textarea { font-size: 16px; } /* stops iOS zooming into fields */
 }
 
+/* Job rows: a small remove button; removed jobs (shown via Filters) are dimmed */
+.clear-menu { width: auto; font-size: 12px; padding: 3px 6px; }
+.job-row { position: relative; }
+.job-row .row-x { position: absolute; right: 8px; top: 8px; padding: 2px 7px; opacity: .45; }
+.job-row:hover .row-x, .job-row .row-x:focus { opacity: 1; }
+.job-row .t { padding-right: 30px; }
+.job-row.removed { opacity: .5; }
 /* Typed-"delete" confirmation */
 .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: #fff; border-radius: 10px; padding: 16px 18px; width: min(420px, 100%); box-shadow: 0 10px 40px rgba(0,0,0,.25); }

@@ -111,6 +111,15 @@ export async function fetchPageText(url: string): Promise<string> {
   return out.text;
 }
 
+/** Delete stored scrape results except `keep` (ids). Runs on the laptop app, from any device. */
+export type ClearScope = "all" | "readytalent" | "linkedin" | "indeed" | "boards";
+export async function clearResults(keep: string[], scope: ClearScope): Promise<number> {
+  const r = await fetch("/api/clear-results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep, scope }) });
+  const out = await r.json().catch(() => ({ error: "The laptop app needs updating to clear results." }));
+  if (!r.ok) throw new Error(out.error || "Couldn't clear the results.");
+  return out.removed as number;
+}
+
 export async function fetchBoardJobs(): Promise<Job[]> {
   try { const r = await fetch("/api/board-jobs"); return r.ok ? r.json() : []; } catch { return []; }
 }
