@@ -302,7 +302,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
     const stored = readJson("board-jobs.json", []);
     const known = new Map(stored.map((j) => [j.id, j]));
     const dict = skillDictionary();
-    const say = (msg) => e.sender.send("boards:progress", { msg });
+    const say = (msg, p) => e.sender.send("boards:progress", { msg, ...(p || {}) });
     const clean = {
       terms, location: String(opts.location || "Singapore").trim() || "Singapore", linkedin: !!opts.linkedin, indeed: !!opts.indeed,
       perTerm: Math.min(50, Math.max(5, Number(opts.perTerm) || 10)), days: [1, 3, 7, 14, 30].includes(Number(opts.days)) ? Number(opts.days) : 14,

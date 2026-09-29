@@ -44,6 +44,11 @@ main { flex: 1; overflow: auto; }
 .find-section { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 14px; margin-bottom: 14px; background: #fff; }
 .find-section h2 { margin: 0 0 6px; font-size: 16px; }
 .find-section label { margin-top: 10px; }
+/* Scraper progress bar */
+.progress { margin: 8px 0 4px; }
+.progress-track { height: 8px; background: var(--soft); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s ease; }
+.progress .small { margin-top: 3px; }
 /* Loading bars (native <progress>: no value = indeterminate) */
 progress.loading { width: 100%; height: 6px; accent-color: var(--accent, #2563eb); }
 progress.loading.inline { width: 90px; margin-right: 8px; vertical-align: middle; }

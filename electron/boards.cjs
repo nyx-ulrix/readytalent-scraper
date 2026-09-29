@@ -128,7 +128,7 @@ async function linkedin(term, opts, known, found, say) {
       if (found.has(id)) { found.get(id).terms = [...new Set([...found.get(id).terms, term])]; continue; }
       if (!passes({ company: c.company }, opts)) continue;
       if (known.has(id)) { found.set(id, { ...known.get(id), terms: [...new Set([...(known.get(id).terms || []), term])], lastSeen: new Date().toISOString() }); continue; }
-      say(`LinkedIn · "${term}" · ${c.title} @ ${c.company}`);
+      say(`LinkedIn · "${term}" · ${c.title} @ ${c.company}`, kept / opts.perTerm);
       await pace();
       const d = await load(`https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${c.id}`)
         .then(({ wc: w, code: dc }) => (dc === 429 ? null : w.executeJavaScript(LI_DETAIL, true)))
@@ -153,7 +153,7 @@ async function indeed(term, opts, known, found, say) {
   const host = indeedHost(opts.location);
   let kept = 0;
   for (let start = 0; kept < opts.perTerm && !cancelled; start += 10) {
-    say(`Indeed · "${term}" · page ${start / 10 + 1}`);
+    say(`Indeed · "${term}" · page ${start / 10 + 1}`, Math.min(kept / opts.perTerm, 0.95));
     const jt = opts.jobTypes.length === 1 ? `&jt=${opts.jobTypes[0]}` : "";
     const remote = opts.workplace.length === 1 && opts.workplace[0] === "remote" ? `&remotejob=${INDEED_REMOTE}` : "";
     const lv = [...new Set(opts.levels.map((k) => IN_LEVEL[k]))];
@@ -199,14 +199,21 @@ async function searchBoards(opts, known, dictionary, say) {
   const found = new Map();
   const errors = [];
   const live = { linkedin: !!opts.linkedin, indeed: !!opts.indeed };
+  // Progress: each term on each board is one step; the boards report how far through a step they are (0..1).
+  const steps = opts.terms.length * ((live.linkedin ? 1 : 0) + (live.indeed ? 1 : 0)) || 1;
+  let step = 0;
+  const report = (msg, frac = 0) => say(msg, { done: Math.min(step + Math.max(0, Math.min(frac, 1)), steps), total: steps });
   for (const term of opts.terms) {
     for (const board of ["linkedin", "indeed"]) {
-      if (!live[board] || cancelled) continue;
-      try { await (board === "linkedin" ? linkedin : indeed)(term, opts, known, found, say); }
+      if (!opts[board] || cancelled) continue;
+      if (!live[board]) { step++; continue; } // board stopped earlier this run: count its steps as done
+      try { await (board === "linkedin" ? linkedin : indeed)(term, opts, known, found, report); }
       catch (e) {
         errors.push(e.message);
         if (e.blocked) live[board] = false; // stop hammering a board that pushed back
       }
+      step++;
+      report(`${step} of ${steps} searches done`);
     }
     if (cancelled) { errors.push("Stopped."); break; }
   }

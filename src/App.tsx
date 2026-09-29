@@ -53,6 +53,24 @@ function DeleteDialog() {
   );
 }
 
+/**
+ * Progress bar for the scrapers. With `done`/`total` it fills and shows "done of total (n%)"; without, it creeps
+ * toward 90% over about `expectMs` (an estimate) so a single page read still shows movement.
+ */
+function Progress({ done, total, label, expectMs = 8000 }: { done?: number; total?: number; label?: string; expectMs?: number }) {
+  const [t0] = useState(() => Date.now());
+  const [, tick] = useState(0);
+  const known = !!total && total > 0;
+  useEffect(() => { if (known) return; const iv = window.setInterval(() => tick((n) => n + 1), 250); return () => window.clearInterval(iv); }, [known]);
+  const frac = known ? Math.min((done || 0) / total!, 1) : 0.9 * (1 - Math.exp(-(Date.now() - t0) / (expectMs / 2)));
+  return (
+    <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)}>
+      <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.max(frac * 100, 2)}%` }} /></div>
+      <div className="small muted">{label ? `${label} · ` : ""}{known ? `${Math.floor(done || 0)} of ${total} (${Math.round(frac * 100)}%)` : `about ${Math.round(frac * 100)}%`}</div>
+    </div>
+  );
+}
+
 /** Trash-can icon for delete buttons. */
 const Trash = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -564,7 +582,8 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
     const add = await generateSearchTerms(aiCfg(state), source(), roles, terms.map((t) => t.term));
     update((s) => ({ ...s, searchTerms: [...(s.searchTerms || []), ...add.map((term) => ({ term, on: true }))] }));
   });
-  useEffect(() => window.desktop?.onBoardsProgress((p) => setStatus(p.msg)), []);
+  const [boardProg, setBoardProg] = useState<{ done: number; total: number } | null>(null);
+  useEffect(() => window.desktop?.onBoardsProgress((p) => { setStatus(p.msg); if (p.total) setBoardProg({ done: p.done || 0, total: p.total }); }), []);
 
   const addInterest = (r: string) => {
     if (interests.some((x) => x.toLowerCase() === r.toLowerCase())) return;
@@ -573,7 +592,7 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
     addTerms(r); // the role itself is a search term straight away
   };
   const search = async (list = onTerms) => {
-    setBusy("search"); setErr(""); setStatus("Starting search…");
+    setBusy("search"); setErr(""); setStatus("Starting search…"); setBoardProg(null);
     try {
       const r = await window.desktop!.searchBoards({ ...opts, terms: list });
       const fresh = await fetchBoardJobs();
@@ -656,7 +675,7 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
         </div>
         <div className="small muted">LinkedIn applies all of these. Indeed applies one employment type, remote-only and one level itself; the rest are filtered from its results.</div>
       </div>
-      {busy === "search" && <progress className="loading" />}
+      {busy === "search" && <Progress done={boardProg?.done} total={boardProg?.total} label="Searches" expectMs={60000} />}
       {isDesktop() ? (
         <div className="row">
           <button disabled={busy === "search" || !onTerms.length || (!opts.linkedin && !opts.indeed)} onClick={() => void search()}>{busy === "search" ? "Searching…" : `Search ${onTerms.length} term${onTerms.length === 1 ? "" : "s"}`}</button>
@@ -716,7 +735,7 @@ function ReadyTalentScrape({ jobs, setJobs, state, update, onView }: { jobs: Job
           {courses.map((c) => <option key={c}>{c}</option>)}
         </select>
       </div>
-      {busy && (prog ? <progress className="loading" value={prog.i} max={prog.n} /> : <progress className="loading" />)}
+      {busy && (prog ? <Progress done={prog.i} total={prog.n} label="Jobs fetched" /> : <Progress label="Signing in and listing jobs" expectMs={20000} />)}
       {isDesktop() ? (
         <div className="row" style={{ marginTop: 8 }}>
           <button onClick={scrape} disabled={busy}>{busy ? "Scraping…" : "Scrape ReadyTalent"}</button>
@@ -1071,7 +1090,8 @@ function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
   const [err, setErr] = useState("");
   const hasKey = !!aiCfg(state).key;
   const opts = { ...defaultState.boardSearch, ...state.boardSearch };
-  useEffect(() => (busy === "search" ? window.desktop?.onBoardsProgress((p) => setStatus(p.msg)) : undefined), [busy]);
+  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
+  useEffect(() => (busy === "search" ? window.desktop?.onBoardsProgress((p) => { setStatus(p.msg); if (p.total) setProg({ done: p.done || 0, total: p.total }); }) : undefined), [busy]);
   const write = async (title: string) => {
     if (!aiConfirm(state, `Write an example posting and search terms for "${title}"?`)) return;
     setBusy("write"); setErr(""); setStatus("");
@@ -1084,7 +1104,7 @@ function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
   };
   const search = async () => {
     if (!t) return;
-    setBusy("search"); setErr(""); setStatus("Starting search…");
+    setBusy("search"); setErr(""); setStatus("Starting search…"); setProg(null);
     try {
       const r = await window.desktop!.searchBoards({ ...opts, terms: t.terms });
       const fresh = await fetchBoardJobs();
@@ -1127,7 +1147,7 @@ function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
             <div className="small muted" style={{ marginTop: 6 }}>Search terms:</div>
             <div className="chips">{t.terms.map((x) => <span key={x} className="chip">{x}</span>)}</div>
           </details>
-          {busy === "search" && <progress className="loading" />}
+          {busy === "search" && <Progress done={prog?.done} total={prog?.total} label="Searches" expectMs={60000} />}
           <div className="row" style={{ marginTop: 8 }}>
             {isDesktop() ? <button disabled={!!busy} onClick={() => void search()}>{busy === "search" ? "Searching…" : "Search jobs like this"}</button> : <span className="small muted">Searching runs on the laptop app.</span>}
             {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
@@ -1141,7 +1161,7 @@ function TargetsPage({ state, update, sel, setSel, open, setBoardJobs }: {
           <div className="small muted">Sort by "Most like: {t.title}" in Filters &amp; sort to see the closest matches first.</div>
         </>
       )}
-      {busy === "write" && <progress className="loading" />}
+      {busy === "write" && <Progress label="Writing the example posting" expectMs={15000} />}
       {!t && err && <div className="status err">{err}</div>}
     </div>
   );
@@ -1198,7 +1218,7 @@ function UpdateDetails({ state, update }: { state: State; update: Update }) {
         </label>
         {before && <button className="ghost" onClick={() => { update({ profile: before }); setBefore(null); setMsg("Undone: your details are as they were."); }}>Undo</button>}
       </div>
-      {busy && <div className="status">{busy}</div>}
+      {busy && <Progress label={busy.replace(/…$/, "")} expectMs={busy.startsWith("Reading the page") ? 6000 : 20000} />}
       {msg && <div className="status" style={{ color: "var(--ok)" }}>{msg}</div>}
       {err && <div className="status err">{err}</div>}
     </div>
@@ -1274,7 +1294,7 @@ function PastePosting({ state, update, onView }: { state: State; update: Update;
             </div>
           </>
         ) : null}
-        {busy && <div className="status"><progress className="loading inline" />{busy}</div>}
+        {busy && <Progress label={busy.replace(/…$/, "")} expectMs={busy.startsWith("Reading the link") ? 6000 : 12000} />}
         {note && <div className="status" style={{ color: "var(--ok)" }}>{note}{last && <> <button className="ghost small" onClick={() => onView(last)}>View in Jobs</button></>}</div>}
         {err && <div className="status err">{err}</div>}
       </div>
