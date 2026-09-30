@@ -9,14 +9,15 @@ export const MIN_FONT_PT = 8;
 const PT_TO_PX = 96 / 72;
 
 /** What the fitting did, for the note on the Resume tab. */
-export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean };
+/** `pages` is set for the base resume, which is never shrunk: how many A4 pages it runs to. */
+export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean; pages?: number };
 
 /**
  * Exactly one A4 sheet. If the content is taller than the page, everything inside is scaled down evenly
  * (text, spacing, headings), but never so far that the smallest text drops below MIN_FONT_PT.
  * The width is compensated so lines still span the full page. Reports whether it fits at that limit.
  */
-function A4({ className, fitKey, onFit, children }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean }) => void; children: ReactNode }) {
+function A4({ className, fitKey, onFit, children, multi = false }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean; pages?: number }) => void; children: ReactNode; multi?: boolean }) {
   const area = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -35,6 +36,12 @@ function A4({ className, fitKey, onFit, children }: { className: string; fitKey:
       for (const el of b.querySelectorAll<HTMLElement>("*")) {
         if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())) continue;
         smallestPx = Math.min(smallestPx, parseFloat(getComputedStyle(el).fontSize) || Infinity);
+      }
+      if (multi) {
+        // Base resume: never shrunk; it flows over as many A4 pages as it needs (265 mm of text per page).
+        const perPage = (265 * 96) / 25.4;
+        onFit?.({ scale: 1, smallestPt: smallestPx === Infinity ? MIN_FONT_PT : smallestPx / PT_TO_PX, fits: true, pages: Math.max(1, Math.ceil((b.getBoundingClientRect().height - 2) / perPage)) });
+        return;
       }
       const minScale = Math.min(1, (MIN_FONT_PT * PT_TO_PX) / (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx));
       let f = 1;
@@ -87,10 +94,10 @@ const hiddenCount = (p: Profile, cap: number) =>
 function useDensity(key: string, onFit?: (info: FitInfo) => void) {
   const [level, setLevel] = useState(0);
   useEffect(() => setLevel(0), [key]);
-  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean }) => {
+  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean; pages?: number }) => {
     if (!r.fits && level < DENSITY.length - 1) { setLevel(level + 1); return; }
     const d = DENSITY[level];
-    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0 });
+    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0, pages: r.pages });
   };
   return { level, d: DENSITY[level], report };
 }
@@ -146,7 +153,7 @@ function Labelled({ text }: { text: string }) {
   return <div className="line-plain">{m ? <><b>{m[1]}:</b> <Linkify text={m[2]} /></> : <Linkify text={text} />}</div>;
 }
 
-function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => void }) {
+function StandardPage({ p, onFit, multi = false }: { p: Profile; onFit?: (info: FitInfo) => void; multi?: boolean }) {
   const key = JSON.stringify(p);
   const { level, d, report } = useDensity(key, onFit);
   const contact = [p.phone, p.email, ...headerLinks(p)].map((s) => (s || "").trim()).filter(Boolean);
@@ -154,7 +161,7 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => voi
   const additional = (p.additional || []).filter(Boolean);
   const awards = p.awards.filter(Boolean);
   return (
-    <A4 className={`page tpl-standard${d.tight ? " tight" : ""}`} fitKey={`${level}|${key}`} onFit={report(p)}>
+    <A4 className={`page tpl-standard${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}`} onFit={report(p)} multi={multi}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">
@@ -181,19 +188,20 @@ function StandardPage({ p, onFit }: { p: Profile; onFit?: (info: FitInfo) => voi
 
 /** A4 page. Standard has its own layout; the other templates share one DOM and differ only in CSS. */
 export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
-  // Only the top of each ranked list goes on the page; the rest stays stored.
-  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} />;
-  return <OtherPage p={visible(p)} template={template} onFit={onFit} />;
+  // Base resume (no tailoring): everything, over as many pages as needed. Tailored: the AI's picks on one A4 page.
+  const multi = !p.show;
+  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} multi={multi} />;
+  return <OtherPage p={visible(p)} template={template} onFit={onFit} multi={multi} />;
 }
 
-function OtherPage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
+function OtherPage({ p, template, onFit, multi = false }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void; multi?: boolean }) {
   const key = template + JSON.stringify(p);
   const { level, d, report } = useDensity(key, onFit);
   const contact = [p.email, p.phone, p.location, ...headerLinks(p)].filter(Boolean);
   const extra = p.sections || [];
   const additional = (p.additional || []).filter(Boolean);
   return (
-    <A4 className={`page tpl-${template}${d.tight ? " tight" : ""}`} fitKey={`${level}|${key}`} onFit={report(p)}>
+    <A4 className={`page tpl-${template}${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}`} onFit={report(p)} multi={multi}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">{contact.map((c, i) => <span key={i}><Linkify text={c} phone={c === p.phone} /></span>)}</div>

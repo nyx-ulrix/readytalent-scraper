@@ -795,8 +795,8 @@ function ResumeTab({ state, update, jobs, doc, setDoc }: {
         {doc.jobId && doc.kind === "resume" && <button className="ghost" onClick={() => { const t = { ...state.tailored }; delete t[doc.jobId]; update({ tailored: t }); setDoc({ kind: "resume", jobId: "" }); }}>Delete this version</button>}
         <span className="small muted">{Math.round(zoom * 100)}%</span>
         {fit && (
-          <span className={`small fit-note ${fit.hiddenBullets || !fit.fits ? "warn" : "muted"}`} title={`Every resume and letter is one A4 page; text is never smaller than ${MIN_FONT_PT} pt`}>
-            {[
+          <span className={`small fit-note ${fit.hiddenBullets || !fit.fits ? "warn" : "muted"}`} title={fit.pages ? "Your base resume shows everything you've entered; tailored resumes are fitted to one A4 page" : `Tailored resumes and letters are one A4 page; text is never smaller than ${MIN_FONT_PT} pt`}>
+            {fit.pages ? `${fit.pages} A4 page${fit.pages === 1 ? "" : "s"} · everything you've entered · tailored resumes are fitted to one page` : [
               "One A4 page",
               `smallest text ${fit.smallestPt.toFixed(1)} pt`,
               fit.scale < 0.999 ? `shrunk to ${Math.round(fit.scale * 100)}%` : "",
@@ -1302,26 +1302,79 @@ function PastePosting({ state, update, onView }: { state: State; update: Update;
   );
 }
 
+/** Move one item of a list from index `from` to index `to`. */
+const arrayMove = <T,>(list: T[], from: number, to: number): T[] => { const out = [...list]; const [x] = out.splice(from, 1); out.splice(to, 0, x); return out; };
+
+/**
+ * Drag to reorder with a grip handle. Uses pointer events so it works with a mouse and on touch screens; the item
+ * moves as soon as the pointer passes the middle of a neighbour. Arrow keys on the handle also move it (keyboard).
+ */
+function useDragSort(count: number, move: (from: number, to: number) => void) {
+  const refs = useRef<(HTMLElement | null)[]>([]);
+  const cur = useRef<number | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const end = () => { cur.current = null; setDragging(null); };
+  const handle = (i: number) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => { e.preventDefault(); e.stopPropagation(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* keeps working without capture */ } cur.current = i; setDragging(i); },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const from = cur.current;
+      if (from === null) return;
+      const y = e.clientY;
+      // Keep the page scrolling while dragging near the top or bottom edge.
+      const scroller = document.querySelector("main");
+      if (scroller) { if (y < 70) scroller.scrollBy(0, -12); else if (y > window.innerHeight - 70) scroller.scrollBy(0, 12); }
+      let to = from;
+      refs.current.slice(0, count).forEach((el, k) => {
+        if (!el || k === from) return;
+        const r = el.getBoundingClientRect();
+        const mid = r.top + Math.min(r.height, 44) / 2; // compare with the title line, not an opened entry's full height
+        if (k < from && y < mid) to = Math.min(to, k);
+        if (k > from && y > mid) to = Math.max(to, k);
+      });
+      if (to !== from) { move(from, to); cur.current = to; setDragging(to); }
+    },
+    onPointerUp: end,
+    onPointerCancel: end,
+    onClick: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); }, // don't open/close the entry
+    onKeyDown: (e: React.KeyboardEvent) => {
+      const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
+      if (to < 0 || to >= count) return;
+      e.preventDefault(); e.stopPropagation(); move(i, to);
+      window.setTimeout(() => (refs.current[to]?.querySelector(".drag-handle") as HTMLElement | null)?.focus(), 0);
+    },
+  });
+  return { ref: (i: number) => (el: HTMLElement | null) => { refs.current[i] = el; }, handle, dragging };
+}
+
+/** The grip you drag by. */
+function DragHandle(props: ReturnType<ReturnType<typeof useDragSort>["handle"]> & { label: string }) {
+  const { label, ...rest } = props;
+  return <button type="button" className="drag-handle" title="Drag to reorder (or use the arrow keys)" aria-label={label} {...rest}>⠿</button>;
+}
+
 /** Resume content editor (summary, skills, entries, sections, awards, skill lines). Used for your details and for editing any tailored version. */
 function ProfileBody({ p, setP }: { p: Profile; setP: (patch: Partial<Profile>) => void }) {
+  const secs = p.sections || [];
+  const secDrag = useDragSort(secs.length, (from, to) => setP({ sections: arrayMove(secs, from, to) }));
   return (
     <>
       <label>Summary</label>
       <textarea value={p.summary} onChange={(e) => setP({ summary: e.target.value })} placeholder="2-3 lines about you. The AI can rewrite this per job." />
       <label>Skills (comma separated, most relevant first)</label>
-      <div className="small muted">The page shows the first {Math.min(shownCount(p, "skills", MAX_SKILLS), p.skills.filter(Boolean).length)} of {p.skills.filter(Boolean).length}; the rest stay stored here.</div>
+      <div className="small muted">{p.show ? `This tailored resume shows the first ${Math.min(shownCount(p, "skills", MAX_SKILLS), p.skills.filter(Boolean).length)} of ${p.skills.filter(Boolean).length}; the rest stay stored here.` : `Your base resume shows all ${p.skills.filter(Boolean).length}; tailored resumes show the ${MAX_SKILLS} most relevant.`}</div>
       <textarea value={p.skills.join(", ")} onChange={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()) })} onBlur={(e) => setP({ skills: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
 
       <EntryList title="Experience" items={p.experience} onChange={(experience) => setP({ experience })} />
-      <EntryList title="Projects" items={p.projects} shown={shownCount(p, "projects", MAX_PROJECTS)} onChange={(projects) => setP({ projects })} />
+      <EntryList title="Projects" items={p.projects} shown={p.show ? shownCount(p, "projects", MAX_PROJECTS) : Infinity} onChange={(projects) => setP({ projects })} />
       <EntryList title="Education" items={p.education} onChange={(education) => setP({ education })} />
       {(p.sections || []).map((sec, si) => (
-        <div key={si}>
+        <div key={si} ref={secDrag.ref(si)} className={secDrag.dragging === si ? "dragging" : ""}>
           <div className="row" style={{ marginTop: 26 }}>
+            {secs.length > 1 && <DragHandle label={`Move section ${sec.title || "Untitled"}`} {...secDrag.handle(si)} />}
             <input value={sec.title} placeholder="Section title, e.g. Competition" style={{ flex: 1, fontWeight: 600 }} onChange={(e) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, title: e.target.value } : x)) })} />
             <button className="ghost" onClick={async () => { if (await confirmDelete(`Remove the section "${sec.title || "Untitled"}" and its ${sec.entries.length} entries?`)) setP({ sections: p.sections.filter((_, j) => j !== si) }); }}>Remove section</button>
           </div>
-          <EntryList title={sec.title || "Entries"} items={sec.entries} shown={shownCount(p, sectionKey(sec.title), sectionLimit(sec.title))} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
+          <EntryList title={sec.title || "Entries"} items={sec.entries} shown={p.show ? shownCount(p, sectionKey(sec.title), sectionLimit(sec.title)) : Infinity} onChange={(entries) => setP({ sections: p.sections.map((x, j) => (j === si ? { ...x, entries } : x)) })} />
         </div>
       ))}
       <div className="actions"><button className="ghost" onClick={() => setP({ sections: [...(p.sections || []), { title: "", entries: [emptyEntry()] }] })}>+ Add section (e.g. Competition, Leadership)</button></div>
@@ -1341,33 +1394,32 @@ function EntryList({ title, items, shown = Infinity, onChange }: { title: string
   const [open, setOpen] = useState<Set<number>>(new Set());
   const set = (i: number, patch: Partial<Entry>) => onChange(items.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   const toggle = (i: number, on: boolean) => setOpen((o) => { const n = new Set(o); if (on) n.add(i); else n.delete(i); return n; });
-  /** Swap entries i and j (and which of them is open). */
-  const move = (i: number, j: number) => {
-    onChange(items.map((x, k) => (k === i ? items[j] : k === j ? items[i] : x)));
-    setOpen((o) => { const n = new Set(o); const a = o.has(i), b = o.has(j); n.delete(i); n.delete(j); if (a) n.add(j); if (b) n.add(i); return n; });
+  /** Move an entry (and keep the same entries open). */
+  const move = (from: number, to: number) => {
+    onChange(arrayMove(items, from, to));
+    setOpen((o) => new Set(arrayMove(items.map((_, k) => o.has(k)), from, to).flatMap((on, k) => (on ? [k] : []))));
   };
+  const drag = useDragSort(items.length, move);
   const remove = async (i: number) => {
     if (!(await confirmDelete(`Delete "${items[i].title || "this entry"}" from ${title}? Its bullet points are deleted too.`))) return;
     onChange(items.filter((_, j) => j !== i));
     setOpen((o) => new Set([...o].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k))));
   };
-  const stop = (fn: () => void) => (ev: React.MouseEvent) => { ev.preventDefault(); ev.stopPropagation(); fn(); };
   return (
     <>
       <h2>{title} <button className="ghost small" style={{ marginLeft: 8 }} onClick={() => { onChange([...items, emptyEntry()]); toggle(items.length, true); }}>+ Add</button></h2>
-      <div className="small muted">Tap an entry to see and edit its details. Your ranking: put what you most want to showcase first (↑ ↓). Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job{title !== "Experience" && title !== "Education" ? `; tick "Only if very relevant" on ones you don't want shown otherwise` : ""}.{(title === "Projects" || isLeadership(title) || shown < items.length) ? ` Your base resume shows the top ${Math.min(shown, items.length)}; everything below stays stored.` : ""}</div>
+      <div className="small muted">Tap an entry to see and edit its details. Your ranking: drag ⠿ to put what you most want to showcase first. Tailored resumes pick your higher-ranked ones whenever they're relevant enough to the job{title !== "Experience" && title !== "Education" ? `; tick "Only if very relevant" on ones you don't want shown otherwise` : ""}.{shown < items.length ? ` This tailored resume shows the top ${shown}; everything below stays stored.` : title === "Projects" || isLeadership(title) ? ` Your base resume shows them all; tailored resumes pick at most ${title === "Projects" ? MAX_PROJECTS : 2}.` : ""}</div>
       {items.map((e, i) => (
-        <details key={i} open={open.has(i)} onToggle={(ev) => { const on = (ev.target as HTMLDetailsElement).open; if (on !== open.has(i)) toggle(i, on); }}
-          className={`card entry${i >= shown || e.onlyIfVeryRelevant ? " stored" : ""}`} title={e.onlyIfVeryRelevant ? "Only used when very relevant to a job" : i >= shown ? "Stored, not on the page" : undefined}>
+        <details key={i} ref={drag.ref(i)} open={open.has(i)} onToggle={(ev) => { const on = (ev.target as HTMLDetailsElement).open; if (on !== open.has(i)) toggle(i, on); }}
+          className={`card entry${i >= shown || e.onlyIfVeryRelevant ? " stored" : ""}${drag.dragging === i ? " dragging" : ""}`} title={e.onlyIfVeryRelevant ? "Only used when very relevant to a job" : i >= shown ? "Stored, not on the page" : undefined}>
           <summary>
+            {items.length > 1 && <DragHandle label={`Move ${e.title || "entry"} (now #${i + 1})`} {...drag.handle(i)} />}
             <span className="rank">#{i + 1}</span>
             <span className="entry-title">
               <b>{e.title || <span className="muted">Untitled</span>}</b>
               {(e.org || e.dates) && <span className="small muted"> · {[e.org, e.dates].filter(Boolean).join(" · ")}</span>}
               {e.onlyIfVeryRelevant && <span className="small muted"> · only if very relevant</span>}
             </span>
-            {i > 0 && <button className="ghost small" title="Rank higher" onClick={stop(() => move(i, i - 1))}>↑</button>}
-            {i < items.length - 1 && <button className="ghost small" title="Rank lower" onClick={stop(() => move(i, i + 1))}>↓</button>}
           </summary>
           <div className="row" style={{ marginTop: 8 }}>
             <input placeholder={title === "Education" ? "Degree" : "Role / project name"} value={e.title} onChange={(ev) => set(i, { title: ev.target.value })} />
