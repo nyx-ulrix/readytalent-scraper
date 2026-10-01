@@ -156,7 +156,8 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
   const distinct = (f: (j: Job) => string | undefined) => [...new Set(jobs.flatMap((j) => (f(j) || "").split(/\s*,\s*/)).filter(Boolean))].sort();
   const [q, setQ] = keep("q", "");
   const [onlySaved, setOnlySaved] = keep("onlySaved", false);
-  const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open">("appliedFilter", "");
+  const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open" | "waiting" | "rejected">("appliedFilter", "");
+  const rejectedOn = (id: string) => state.rejected?.[id];
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
   useEffect(() => { fetchMeta().then(setMeta); }, []);
   const { employmentType: type, course } = state;
@@ -238,6 +239,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
       skillsWant.every((k) => sk.includes(k)) && !skillsAvoid.some((k) => sk.includes(k)) &&
       (!onlySaved || state.saved.includes(j.id)) &&
       (appliedFilter !== "applied" || !!state.applied?.[j.id]) && (appliedFilter !== "open" || !state.applied?.[j.id]) &&
+      (appliedFilter !== "waiting" || (!!state.applied?.[j.id] && !rejectedOn(j.id))) && (appliedFilter !== "rejected" || !!rejectedOn(j.id)) &&
       (!hideExpired || !j.expired) &&
       (!hidesRemoved || showRemoved || !hidden.has(j.id)) &&
       payPasses(j.salary, pay) &&
@@ -261,7 +263,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort] || cmp.posted); // a remembered sort whose target was removed
-  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, skillsWant, skillsAvoid, state.targets, state.hidden, showRemoved]);
+  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, state.rejected, skillsWant, skillsAvoid, state.targets, state.hidden, showRemoved]);
 
   return (
     <div className={`jobs ${sel ? "has-sel" : ""}`}>
@@ -272,7 +274,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
             <div className="status">{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`.replace(/\s+/g, " ")}{removedHere > 0 && !showRemoved ? ` · ${removedHere} removed` : ""}</div>
             {mode === "all" && onCleared && (() => {
               // Kept whatever you clear: saved, applied, and jobs with a tailored resume or letter (pasted jobs are never cleared).
-              const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
+              const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.rejected || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
               const scopes: [ClearScope, string, string | null][] = [["all", "All sources", null], ["readytalent", "ReadyTalent", "ReadyTalent"], ["linkedin", "LinkedIn", "LinkedIn"], ["indeed", "Indeed", "Indeed"]];
               const count = (label: string | null) => jobs.filter((j) => j.source !== "pasted" && (!label || sourceOf(j) === label) && !keepIds.includes(j.id)).length;
               const clear = async (scope: ClearScope, label: string, source: string | null) => {
@@ -360,11 +362,13 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
               {mode === "applied" && <option value="applied">Recently applied</option>}
               {(state.targets || []).map((t, i) => <option key={i} value={`like:${i}`}>Most like: {t.title}</option>)}
             </select>
-            {mode !== "applied" && <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ flex: "1 1 130px", width: "auto" }}>
-              <option value="">All ({Object.keys(state.applied || {}).length} applied)</option>
-              <option value="open">Not applied</option>
-              <option value="applied">Applied</option>
-            </select>}
+            <select value={appliedFilter} onChange={(e) => setAppliedFilter(e.target.value as typeof appliedFilter)} style={{ flex: "1 1 130px", width: "auto" }}>
+              <option value="">{mode === "applied" ? "All applications" : `All (${Object.keys(state.applied || {}).length} applied)`}</option>
+              {mode !== "applied" && <option value="open">Not applied</option>}
+              {mode !== "applied" && <option value="applied">Applied</option>}
+              <option value="waiting">Applied, waiting to hear</option>
+              <option value="rejected">Rejected ({Object.keys(state.rejected || {}).length})</option>
+            </select>
             <input type="number" min={0} step={100} inputMode="numeric" placeholder="Min pay $/mo" value={minPay} onChange={(e) => setMinPay(e.target.value)} style={{ flex: "1 1 120px" }} title="Pay is compared per month (yearly ÷ 12, hourly × 173)" />
             <label className="small muted" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}><input type="checkbox" checked={payListed} onChange={(e) => setPayListed(e.target.checked)} style={{ width: "auto" }} />pay listed</label>
           </div>
@@ -400,7 +404,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
           <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
             {hidesRemoved && <button className="ghost small row-x" title={hidden.has(j.id) ? "Bring this job back" : "Not interested: remove from the list"} aria-label={hidden.has(j.id) ? "Restore job" : "Remove job"}
               onClick={(ev) => { ev.stopPropagation(); update((s) => { const h = new Set(s.hidden || []); if (h.has(j.id)) h.delete(j.id); else h.add(j.id); return { ...s, hidden: [...h] }; }); if (sel?.id === j.id && !hidden.has(j.id)) setSel(null); }}>{hidden.has(j.id) ? "↺" : "✕"}</button>}
-            <div className="t">{state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
+            <div className="t">{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
@@ -468,8 +472,17 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
           <button className="ghost" title={(state.hidden || []).includes(job.id) ? "Show this job in your lists again" : "Remove this job from Jobs and Targets (Filters → Show removed brings it back)"}
             onClick={() => { const off = (state.hidden || []).includes(job.id); update((s) => ({ ...s, hidden: off ? (s.hidden || []).filter((i) => i !== job.id) : [...(s.hidden || []), job.id] })); if (!off) back(); }}>
             {(state.hidden || []).includes(job.id) ? "↺ Restore job" : "✕ Not interested"}</button>
-          <button className={appliedOn ? "" : "ghost"} title={appliedOn ? "Click to undo" : "Mark this job as applied"} onClick={() => update((s) => { const a = { ...(s.applied || {}) }; if (a[job.id]) delete a[job.id]; else a[job.id] = new Date().toISOString(); return { ...s, applied: a }; })}>
+          <button className={appliedOn ? "" : "ghost"} title={appliedOn ? "Click to undo" : "Mark this job as applied"} onClick={() => update((s) => { const a = { ...(s.applied || {}) }; const r = { ...(s.rejected || {}) }; if (a[job.id]) { delete a[job.id]; delete r[job.id]; } else a[job.id] = new Date().toISOString(); return { ...s, applied: a, rejected: r }; })}>
             {appliedOn ? `✓ Applied ${new Date(appliedOn).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark applied"}
+          </button>
+          <button className={state.rejected?.[job.id] ? "rejected-on" : "ghost"} title={state.rejected?.[job.id] ? "Click to undo" : "Mark that you were rejected from this job"}
+            onClick={() => update((s) => {
+              const r = { ...(s.rejected || {}) };
+              if (r[job.id]) { delete r[job.id]; return { ...s, rejected: r }; }
+              r[job.id] = new Date().toISOString();
+              return { ...s, rejected: r, applied: s.applied?.[job.id] ? s.applied : { ...(s.applied || {}), [job.id]: r[job.id] } };
+            })}>
+            {state.rejected?.[job.id] ? `✗ Rejected ${new Date(state.rejected[job.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark rejected"}
           </button>
           <button className="ghost" title="Uses AI tokens" onClick={() => { if (aiConfirm(state, keywords ? "Refresh the ATS keywords for this job?" : "Extract ATS keywords for this job?")) void run("kw", async () => { await getKeywords(true); }); }} disabled={!!busy}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
           <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.tailored[job.id] ? "Re-tailor" : "Tailor"} your resume for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || "", skillPrefs(state, job.id)); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${job.id}`]: new Date().toISOString() } })); setDone("Tailored resume ready. Use View resume to see it."); })} disabled={!!busy}>
@@ -682,7 +695,7 @@ function FindPage({ jobs, setJobs, boardJobs, setBoardJobs, state, update, onVie
           {busy === "search" && <button className="ghost" onClick={() => window.desktop!.stopBoards()}>Stop</button>}
           <button className="ghost small" onClick={() => window.desktop!.showBoardWindow()} title="Shows the hidden browser window, e.g. to complete an Indeed verification yourself">Open Indeed window</button>
           {boardJobs.length > 0 && <button className="ghost small" disabled={!!busy} onClick={async () => {
-            const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
+            const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.rejected || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
             if (await confirmDelete(`Delete the stored LinkedIn/Indeed results? Jobs you saved, applied to or made a resume or letter for are kept.`)) { await clearResults(keepIds, "boards"); setBoardJobs(await fetchBoardJobs()); }
           }}>Clear results</button>}
         </div>

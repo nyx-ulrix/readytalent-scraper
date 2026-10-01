@@ -1,7 +1,7 @@
 {
   "name": "autoresume",
   "private": true,
-  "version": "1.2.14",
+  "version": "1.2.15",
   "description": "AutoResume - ReadyTalent job scraper with AI resume and cover letter (A4)",
   "author": "Malcolm Liew",
   "type": "module",

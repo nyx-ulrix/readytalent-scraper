@@ -42,6 +42,8 @@ export type State = {
   about: string;
   /** Jobs the user applied for: job id -> ISO date. */
   applied: Record<string, string>;
+  /** Applications the user was rejected from: job id -> ISO date (the job also counts as applied). */
+  rejected?: Record<string, string>;
   /** When each tailored resume / cover letter was last generated: "resume:<jobId>" | "letter:<jobId>" -> ISO date. */
   generatedAt: Record<string, string>;
   /** From ATS keywords: skills the user confirmed they have (tailoring adds them) or wants left out (tailoring removes them). */
