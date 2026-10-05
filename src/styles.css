@@ -189,6 +189,18 @@ button.icon { display: inline-flex; align-items: center; justify-content: center
 .resume-tab .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .resume-tab .toolbar select { width: auto; }
 .preview { flex: 1; overflow: auto; background: #d9d9d6; padding: 16px 8px; }
+/* Resume tab: one job's resume and cover letter side by side (stacked on narrow screens) */
+.doc-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
+.doc-panes.two { grid-template-columns: 1fr 1fr; }
+.doc-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.doc-pane + .doc-pane { border-left: 1px solid var(--line); }
+.pane-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fff; }
+.doc-pane .preview .empty { margin: 24px auto; background: #fff; border-radius: 8px; }
+@media (max-width: 900px) {
+  .doc-panes.two { grid-template-columns: 1fr; grid-auto-rows: auto; overflow: auto; }
+  .doc-panes.two .preview { overflow: visible; }
+  .doc-pane + .doc-pane { border-left: 0; border-top: 1px solid var(--line); }
+}
 .preview .page { margin: 0 auto; box-shadow: 0 2px 14px rgba(0,0,0,.2); }
 .resume-editor { max-height: 45vh; overflow: auto; padding: 8px 16px 16px; border-bottom: 1px solid var(--line); }
 .resume-editor h2 { font-size: 15px; margin: 20px 0 4px; }
@@ -276,6 +288,8 @@ button.icon { display: inline-flex; align-items: center; justify-content: center
   .app-chrome { display: none !important; }
   .preview .page { margin: 0; box-shadow: none; zoom: 1 !important; }
   .preview-zoom { zoom: 1 !important; }
+  .doc-panes, .doc-pane { display: block !important; border: 0 !important; }
+  body[data-print="resume"] .doc-pane.letter, body[data-print="letter"] .doc-pane.resume { display: none !important; }
   .fit-note { display: none !important; }
 }
 
