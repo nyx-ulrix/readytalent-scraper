@@ -68,6 +68,15 @@ On a Mac, closing the window does not quit AutoResume, so a tablet can still con
 - **Base resume vs tailored:** your base resume shows everything you've entered, over as many A4 pages as it needs. Tailored resumes and cover letters are exactly one A4 page, never below 8 pt: longer content is shrunk, then spaced more tightly, then shown with fewer bullet points per entry (the Resume tab says how many were left off). Tailored resumes show at most 3 projects, 2 leadership roles and 18 technical skills, picked for the job.
 - **Save** and **Mark applied** keep track of jobs in the **Saved** and **Applied** tabs.
 
+## AI: API key or your own account
+
+Settings → AI → Provider:
+
+- **API key** providers: Google Gemini, OpenAI, Qwen, Claude (Anthropic) and Perplexity. Paste a key from the provider's site.
+- **Your own account, no key:** *Gemini, signed in with Google* (free daily quota through Google's **Gemini CLI**) or *Claude, signed in with your Claude account* (your Pro/Max plan through **Claude Code**). Choose it, then use **Install** and **Sign in** in the panel that appears (a terminal window opens on the laptop; for Gemini choose "Login with Google"), and press **Test**. AI requests run through the tool on the laptop in an empty temporary folder, also when you use AutoResume from a phone or tablet. Google may use free-tier Gemini prompts (which include your resume) to improve its products.
+
+Perplexity only works with an API key: it has no official sign-in tool, and AutoResume doesn't automate any provider's chat website.
+
 ## Use it from a phone or tablet (optional)
 
 Keep AutoResume open on your laptop with the phone or tablet on the same Wi-Fi. Settings → **Phone and tablet access** shows an address like `http://192.168.1.20:4242`; open it in the phone's browser and use **Add to Home Screen** (Safari: Share → Add to Home Screen). The layout fits phone screens. Phones and tablets share your details and jobs with the laptop and can generate resumes and cover letters; use **Print / Save PDF** for A4 output. Scraping and searching run on the laptop.

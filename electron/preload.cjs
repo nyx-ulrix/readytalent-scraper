@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("desktop", {
   stopBoards: () => ipcRenderer.invoke("boards:stop"),
   showBoardWindow: () => ipcRenderer.invoke("boards:window"),
   removeBoardJobs: (ids) => ipcRenderer.invoke("boards:remove", ids),
+  accountTool: (tool, action) => ipcRenderer.invoke("account:tool", { tool, action }),
   onBoardsProgress: (cb) => {
     const h = (_e, p) => cb(p);
     ipcRenderer.on("boards:progress", h);

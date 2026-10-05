@@ -11,6 +11,7 @@ const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
 const { searchBoards, stopBoards, showBoardWindow, scrapePosting, pageText } = require("./boards.cjs");
+const accountAi = require("./accountai.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -99,6 +100,21 @@ function serve() {
             }
             json(res, { removed });
           } catch (e) { json(res, { error: String(e.message || e) }, 400); }
+        });
+        return;
+      }
+      // Signed-in AI (Gemini CLI / Claude Code on this laptop): run one prompt, or report install / sign-in status.
+      if (url.pathname === "/api/ai-account/status") {
+        accountAi.status(url.searchParams.get("tool"), url.searchParams.get("test") === "1", url.searchParams.get("model") || "")
+          .then((st) => json(res, st)).catch((e) => json(res, { installed: false, note: String(e.message || e) }));
+        return;
+      }
+      if (url.pathname === "/api/ai-account" && req.method === "POST") {
+        let body = "";
+        req.on("data", (c) => { body += c; if (body.length > 3e7) req.destroy(); });
+        req.on("end", async () => {
+          try { json(res, { text: await accountAi.ask(JSON.parse(body || "{}")) }); }
+          catch (e) { json(res, { error: String(e.message || e) }, 400); }
         });
         return;
       }
@@ -320,6 +336,7 @@ ipcMain.handle("boards:search", async (e, opts) => {
   } finally { boardsBusy = false; }
 });
 ipcMain.handle("boards:stop", () => { stopBoards(); });
+ipcMain.handle("account:tool", (_e, { tool, action }) => accountAi.openTerminal(tool, action));
 ipcMain.handle("boards:window", () => { showBoardWindow(); });
 ipcMain.handle("boards:remove", (_e, ids) => {
   const keep = ids === "all" ? [] : readJson("board-jobs.json", []).filter((j) => !(ids || []).includes(j.id));

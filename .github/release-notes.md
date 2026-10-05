@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.2.16-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.2.16-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.2.16-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.3.0-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.3.0-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.3.0-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,14 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.3.0
+
+- **Use your own AI account instead of an API key.** Settings → AI → Provider now offers **Gemini, signed in with Google** and **Claude, signed in with your Claude account**. They run the official tools on your laptop (Gemini CLI, Claude Code) under your account: Gemini's free daily quota, or your Claude Pro/Max plan's limits. The Settings panel installs the tool, opens its sign-in and tests it. Every AI action (keywords, tailoring, cover letters, resume import, target postings) works this way, also from your phone or tablet through the laptop. Each request runs in an empty temporary folder with no file access, and Claude Code runs in safe mode, so your own Claude Code settings and instructions aren't used.
+- **Perplexity** added as an API-key provider (Sonar models).
+- API keys for Gemini, OpenAI, Qwen, Claude and Perplexity keep working as before.
+
+Perplexity has no official sign-in tool, so it needs an API key; AutoResume does not automate the Gemini, Claude or Perplexity chat websites.
 
 ## What's new in 1.2.16
 

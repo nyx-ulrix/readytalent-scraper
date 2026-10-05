@@ -3,17 +3,33 @@ import { fromMarkdown, toMarkdown } from "./markdown";
 import { applySkillPrefs, groundProfile, inSource } from "./ground";
 import { MAX_LEADERSHIP, MAX_PROJECTS, byRank, visible } from "./limits";
 
-export type Provider = "gemini" | "openai" | "qwen" | "anthropic";
+/**
+ * API-key providers call the provider's API from the app. Account providers ("gemini-cli", "claude-code") use
+ * the official command-line tool the user signed into on the laptop (Gemini CLI, Claude Code), through the
+ * laptop app, so no API key is needed.
+ */
+export type Provider = "gemini" | "openai" | "qwen" | "anthropic" | "perplexity" | "gemini-cli" | "claude-code";
+export const isAccount = (p: Provider) => p === "gemini-cli" || p === "claude-code";
 /** model: the exact model id the user picked in Settings; "" = the provider default below. */
 export type AiConfig = { provider: Provider; key: string; model?: string };
 type Attachment = { mimeType: string; data: string };
 
 export const PROVIDERS: Record<Provider, { label: string; keyUrl: string; placeholder: string; defaultModel: string }> = {
+  "gemini-cli": { label: "Gemini, signed in with Google (no key)", keyUrl: "https://github.com/google-gemini/gemini-cli", placeholder: "", defaultModel: "auto" },
+  "claude-code": { label: "Claude, signed in with your Claude account (no key)", keyUrl: "https://docs.claude.com/en/docs/claude-code/setup", placeholder: "", defaultModel: "default" },
   gemini: { label: "Google Gemini", keyUrl: "https://aistudio.google.com/apikey", placeholder: "AIza…", defaultModel: "gemini-flash-latest (falls back on quota)" },
   openai: { label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", placeholder: "sk-…", defaultModel: "gpt-4o-mini" },
   qwen: { label: "Qwen (Alibaba DashScope)", keyUrl: "https://modelstudio.console.alibabacloud.com/?tab=model#/api-key", placeholder: "sk-…", defaultModel: "qwen-plus (qwen-vl-plus for images)" },
   anthropic: { label: "Claude (Anthropic)", keyUrl: "https://console.anthropic.com/settings/keys", placeholder: "sk-ant-…", defaultModel: "claude-opus-5" },
+  perplexity: { label: "Perplexity", keyUrl: "https://www.perplexity.ai/account/api/keys", placeholder: "pplx-…", defaultModel: "sonar-pro" },
 };
+/** Models the account tools and Perplexity accept (they have no models endpoint we can call). */
+const FIXED_MODELS: Partial<Record<Provider, string[]>> = {
+  "gemini-cli": ["auto", "pro", "flash", "flash-lite"],
+  "claude-code": ["default", "sonnet", "opus", "haiku"],
+  perplexity: ["sonar-pro", "sonar", "sonar-reasoning-pro", "sonar-reasoning"],
+};
+const PERPLEXITY_BASE = "https://api.perplexity.ai";
 
 const GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"];
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -31,6 +47,8 @@ export type ModelInfo = { id: string; label: string; usable: boolean };
 
 /** Every model this key can see. usable = works for text generation here (others are audio, image, embedding...). */
 export async function listModels(provider: Provider, key: string): Promise<ModelInfo[]> {
+  const fixed = FIXED_MODELS[provider];
+  if (fixed && (isAccount(provider) || key)) return fixed.map((id) => ({ id, label: id, usable: true }));
   if (!key) throw new Error(`Add your ${PROVIDERS[provider].label} API key first.`);
   const sortUsable = (list: ModelInfo[]) => list.sort((x, y) => Number(y.usable) - Number(x.usable) || x.id.localeCompare(y.id));
   switch (provider) {
@@ -66,6 +84,7 @@ export async function listModels(provider: Provider, key: string): Promise<Model
       const d = await getJson("https://api.anthropic.com/v1/models?limit=1000", ANTHROPIC_HEADERS(key));
       return (d.data || []).map((m: { id: string; display_name?: string }) => ({ id: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id, usable: true }));
     }
+    default: return [];
   }
 }
 
@@ -80,8 +99,9 @@ export function priceTable(): Promise<Map<string, Price>> {
     .catch(() => { priceCache = null; return new Map<string, Price>(); });
   return priceCache;
 }
-const VENDOR: Record<Provider, string> = { gemini: "google", openai: "openai", qwen: "qwen", anthropic: "anthropic" };
+const VENDOR: Record<Provider, string> = { gemini: "google", openai: "openai", qwen: "qwen", anthropic: "anthropic", perplexity: "perplexity", "gemini-cli": "google", "claude-code": "anthropic" };
 export function priceFor(provider: Provider, id: string, table: Map<string, Price>): Price | undefined {
+  if (isAccount(provider)) return undefined; // billed to your Google / Claude account plan, not per token
   const undated = id.replace(/-(\d{4}-\d{2}-\d{2}|\d{8})$/, "");
   const dotted = (x: string) => x.replace(/-(\d+)-(\d+)(?=$|-)/, "-$1.$2"); // claude-opus-4-8 -> claude-opus-4.8
   for (const c of [id, dotted(id), undated, dotted(undated), undated.replace(/-(latest|preview.*)$/, "")]) {
@@ -152,6 +172,7 @@ const RESPONSES_ONLY = /(codex|-pro|deep-research)/;
 /** OpenAI and Qwen share the chat-completions shape. */
 async function openaiCompatible(base: string, key: string, model: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
   const content: unknown[] = [];
+  if (file && base === PERPLEXITY_BASE) throw new Error("Perplexity can't read uploaded files here. Paste your resume as text, or switch provider for PDF/image import.");
   if (file) {
     if (file.mimeType.startsWith("image/")) content.push({ type: "image_url", image_url: { url: `data:${file.mimeType};base64,${file.data}` } });
     else if (base === OPENAI_BASE) content.push({ type: "file", file: { filename: "resume.pdf", file_data: `data:${file.mimeType};base64,${file.data}` } });
@@ -163,7 +184,7 @@ async function openaiCompatible(base: string, key: string, model: string, prompt
   const r = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, ...temperature, messages: [{ role: "system", content: system }, { role: "user", content }], ...(json ? { response_format: { type: "json_object" } } : {}) }),
+    body: JSON.stringify({ model, ...temperature, messages: [{ role: "system", content: system }, { role: "user", content }], ...(json && base !== PERPLEXITY_BASE ? { response_format: { type: "json_object" } } : {}) }),
   });
   if (!r.ok) {
     const err = await r.text();
@@ -198,10 +219,36 @@ async function anthropic(key: string, model: string, prompt: string, system: str
   return stripFences((data.content || []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join(""));
 }
 
+/**
+ * Account providers: the laptop app runs the signed-in Gemini CLI / Claude Code with this prompt and returns the
+ * answer (works from a phone or tablet too, since the request goes through the laptop).
+ */
+async function accountAi(tool: "gemini-cli" | "claude-code", model: string, prompt: string, system: string, json: boolean, file?: Attachment): Promise<string> {
+  let r: Response;
+  try {
+    r = await fetch("/api/ai-account", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool, model, prompt, system, json, file }) });
+  } catch { throw new Error(`${PROVIDERS[tool].label} runs through the laptop app: keep AutoResume open on the laptop.`); }
+  const out = await r.json().catch(() => ({ error: "The laptop app needs updating to use signed-in AI." }));
+  if (!r.ok || typeof out.text !== "string") throw new Error(out.error || "The AI didn't answer.");
+  return json ? extractJson(out.text) : out.text.trim();
+}
+/** JSON from a chat answer that may wrap it in prose or a code fence. */
+function extractJson(t: string): string {
+  const s = stripFences(t);
+  try { JSON.parse(s); return s; } catch { /* look for the outermost object */ }
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  return a >= 0 && b > a ? s.slice(a, b + 1) : s;
+}
+
 export async function ai(cfg: AiConfig, prompt: string, system: string, json = false, file?: Attachment): Promise<string> {
-  if (!cfg.key) throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
   const picked = (cfg.model || "").trim();
+  if (cfg.provider === "gemini-cli" || cfg.provider === "claude-code") return accountAi(cfg.provider, picked, prompt, system, json, file);
+  if (!cfg.key) throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
   switch (cfg.provider) {
+    case "perplexity": {
+      const out = await openaiCompatible(PERPLEXITY_BASE, cfg.key, picked || "sonar-pro", json ? `${prompt}\n\nAnswer with the JSON only.` : prompt, system, json, file);
+      return json ? extractJson(out) : out;
+    }
     case "gemini": return gemini(cfg.key, picked, prompt, system, json, file);
     case "openai": {
       const model = picked || "gpt-4o-mini";

@@ -34,10 +34,10 @@ export type State = {
   /** Bumped when a default changes so saved state picks it up once (2 = "standard" template). */
   defaultsVersion: number;
   /** Which AI provider to use and one key per provider (all stored locally). */
-  provider: "gemini" | "openai" | "qwen" | "anthropic";
-  geminiKey: string; openaiKey: string; qwenKey: string; anthropicKey: string;
+  provider: "gemini" | "openai" | "qwen" | "anthropic" | "perplexity" | "gemini-cli" | "claude-code";
+  geminiKey: string; openaiKey: string; qwenKey: string; anthropicKey: string; perplexityKey?: string;
   /** Exact model picked per provider ("" = provider default). */
-  models: Record<"gemini" | "openai" | "qwen" | "anthropic", string>;
+  models: Partial<Record<"gemini" | "openai" | "qwen" | "anthropic" | "perplexity" | "gemini-cli" | "claude-code", string>>;
   /** Free-text facts from the user for the AI (languages, soft skills...). Allowed as resume facts; never printed as-is. */
   about: string;
   /** Jobs the user applied for: job id -> ISO date. */
@@ -139,6 +139,7 @@ declare global {
       stopBoards: () => Promise<void>;
       showBoardWindow: () => Promise<void>;
       removeBoardJobs: (ids: string[] | "all") => Promise<number>;
+      accountTool: (tool: "gemini-cli" | "claude-code", action: "install" | "login") => Promise<void>;
       onBoardsProgress: (cb: (p: { msg: string; done?: number; total?: number }) => void) => () => void;
       setCreds: (user: string, pass: string) => Promise<{ user: string }>;
       getCreds: () => Promise<{ user: string }>;

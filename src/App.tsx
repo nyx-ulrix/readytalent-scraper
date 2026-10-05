@@ -4,15 +4,18 @@ import { clearResults, type ClearScope, fetchBoardJobs, fetchJobs, fetchMeta, fe
 import { mergeProfile, mergeSummary } from "./merge";
 import { toCsv } from "./csv";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
-import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
+import { PROVIDERS, isAccount, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
-const KEY_OF: Record<Provider, "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey"> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey" };
+type KeyField = "geminiKey" | "openaiKey" | "qwenKey" | "anthropicKey" | "perplexityKey";
+/** API-key providers -> the state field holding their key. Account providers (signed-in tools) have none. */
+const KEY_OF: Partial<Record<Provider, KeyField>> = { gemini: "geminiKey", openai: "openaiKey", qwen: "qwenKey", anthropic: "anthropicKey", perplexity: "perplexityKey" };
+const keyOf = (s: State, p: Provider) => (KEY_OF[p] ? (s[KEY_OF[p]!] as string | undefined) || "" : "");
 /** "24 Sept 2026, 3:42 pm" for when a tailored resume / letter was generated; "" if unknown (made before timestamps). */
 const stamp = (s: State, kind: "resume" | "letter", jobId: string) => {
   const iso = s.generatedAt?.[`${kind}:${jobId}`];
   return iso ? new Date(iso).toLocaleString("en-SG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 };
-const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: s[KEY_OF[s.provider]], model: s.models?.[s.provider] || "" });
+const aiCfg = (s: State): AiConfig => ({ provider: s.provider, key: isAccount(s.provider) ? "account" : keyOf(s, s.provider), model: s.models?.[s.provider] || "" });
 import { LetterPage, MIN_FONT_PT, ResumePage, type FitInfo } from "./Resume";
 import { MARKER, toMarkdown } from "./markdown";
 import { monthlyPay, payPasses } from "./pay";
@@ -889,15 +892,16 @@ function Settings({ part, state, update }: { part: "settings" | "details"; state
       <h2>AI</h2>
       <label>Provider used for keywords, resumes, cover letters and resume import</label>
       <select value={state.provider} onChange={(e) => update({ provider: e.target.value as Provider })}>
-        {(Object.keys(PROVIDERS) as Provider[]).map((p) => <option key={p} value={p}>{PROVIDERS[p].label}{state[KEY_OF[p]] ? "" : " (no key)"}</option>)}
+        {(Object.keys(PROVIDERS) as Provider[]).map((p) => <option key={p} value={p}>{PROVIDERS[p].label}{isAccount(p) || keyOf(state, p) ? "" : " (no key)"}</option>)}
       </select>
+      {isAccount(state.provider) && <AccountSetup tool={state.provider as "gemini-cli" | "claude-code"} model={state.models?.[state.provider] || ""} />}
       <ModelPicker state={state} update={update} />
       <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" style={{ width: "auto" }} checked={state.warnTokens !== false} onChange={(e) => update({ warnTokens: e.target.checked })} /> Ask before every AI action (✦). AI actions consume API tokens; nothing runs without your click.</label>
-      <div className="small muted">API keys are stored only on this device / your laptop.</div>
-      {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
+      <div className="small muted">API keys are stored only on this device / your laptop. Signed-in Gemini and Claude need no key.</div>
+      {(Object.keys(PROVIDERS) as Provider[]).filter((p) => KEY_OF[p]).map((p) => (
         <div key={p}>
           <label>{PROVIDERS[p].label} API key · <a href={PROVIDERS[p].keyUrl} target="_blank" rel="noreferrer">get key</a></label>
-          <input type="password" value={state[KEY_OF[p]]} placeholder={PROVIDERS[p].placeholder} onChange={(e) => update({ [KEY_OF[p]]: e.target.value })} autoComplete="off" />
+          <input type="password" value={keyOf(state, p)} placeholder={PROVIDERS[p].placeholder} onChange={(e) => update({ [KEY_OF[p]!]: e.target.value })} autoComplete="off" />
         </div>
       ))}
 
@@ -1019,12 +1023,50 @@ function Credentials() {
 }
 
 /**
+ * Using your own Gemini / Claude account instead of an API key: the laptop runs the official tool you signed into
+ * (Gemini CLI / Claude Code). This panel installs it, opens its sign-in, and tests it.
+ */
+function AccountSetup({ tool, model }: { tool: "gemini-cli" | "claude-code"; model: string }) {
+  const [st, setSt] = useState<{ installed: boolean; version?: string; signedIn?: boolean; note?: string } | null>(null);
+  const [busy, setBusy] = useState("");
+  const name = tool === "gemini-cli" ? "Gemini CLI" : "Claude Code";
+  const refresh = async (test = false) => {
+    setBusy(test ? "Testing…" : "Checking…");
+    try { setSt(await (await fetch(`/api/ai-account/status?tool=${tool}${test ? "&test=1" : ""}&model=${encodeURIComponent(model)}`)).json()); }
+    catch { setSt({ installed: false, note: "Keep AutoResume open on the laptop: signed-in AI runs there." }); }
+    setBusy("");
+  };
+  useEffect(() => { void refresh(); }, [tool]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="card" style={{ marginTop: 8 }}>
+      <b>{name} on this laptop</b>
+      <div className="small muted">
+        {tool === "gemini-cli"
+          ? "Uses your Google account's free Gemini quota instead of an API key. Google may use free-tier prompts (which include your resume and job text) to improve its products."
+          : "Uses your Claude Pro / Max plan's limits instead of an API key."}
+        {" "}Every AI action runs through the {name} tool on the laptop, in an empty temporary folder; phones and tablets go through the laptop too.
+      </div>
+      <div className="status">{busy || (!st ? "" : !st.installed ? `${name} isn't installed on this laptop.` : `${name} ${st.version || ""} installed${st.signedIn === true ? " · signed in and working ✓" : st.signedIn === false ? " · not signed in yet" : ""}`)}{st?.note ? ` · ${st.note}` : ""}</div>
+      {isDesktop() ? (
+        <div className="actions" style={{ margin: "8px 0 0" }}>
+          {st && !st.installed && <button onClick={() => window.desktop!.accountTool(tool, "install")}>Install {name}</button>}
+          {st?.installed && <button className={st.signedIn ? "ghost" : ""} onClick={() => window.desktop!.accountTool(tool, "login")}>{st.signedIn ? "Sign in again" : "Sign in"}</button>}
+          <button className="ghost" disabled={!!busy} onClick={() => void refresh(true)} title="Sends one tiny request through your account">Test</button>
+          <button className="ghost" disabled={!!busy} onClick={() => void refresh()}>Refresh</button>
+        </div>
+      ) : <div className="small muted">Install and sign in from the laptop app (Settings → AI).</div>}
+      {isDesktop() && <div className="small muted">Install and Sign in open a terminal window on the laptop: follow the prompts there{tool === "gemini-cli" ? ' (choose "Login with Google")' : ""}, close it when done, then press Test.</div>}
+    </div>
+  );
+}
+
+/**
  * Model picker: every model the current key can see (provider's own models endpoint), with
  * list prices per 1M tokens (OpenRouter's public price list) and an on-demand availability check.
  */
 function ModelPicker({ state, update }: { state: State; update: Update }) {
   const provider = state.provider;
-  const key = state[KEY_OF[provider]];
+  const key = isAccount(provider) ? "account" : keyOf(state, provider);
   const picked = state.models?.[provider] || "";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [prices, setPrices] = useState<Map<string, Price>>(new Map());
