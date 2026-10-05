@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { likeScore } from "./ground";
 import { clearResults, type ClearScope, fetchBoardJobs, fetchJobs, fetchMeta, fetchPageText, geocode, scrapePosting, useAppState } from "./store";
 import { mergeProfile, mergeSummary } from "./merge";
+import { toCsv } from "./csv";
 import { distanceKm, formatKm, placeQuery, type LatLon } from "./geo";
 import { PROVIDERS, coverLetter, extractKeywords, generateSearchTerms, listModels, rankProfile, readPosting, targetRole, suggestRoles, type SkillPrefs, matchKeywords, parseResume, pingModel, priceFor, priceTable, sourceText, tailorResume, type AiConfig, type ModelInfo, type Price, type Provider } from "./ai";
 
@@ -271,7 +272,21 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
       <aside className="list app-chrome">
         <div className="toolbar">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <div className="status">{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`.replace(/\s+/g, " ")}{removedHere > 0 && !showRemoved ? ` · ${removedHere} removed` : ""}</div>
+            <div className="status" style={{ flex: 1 }}>{`${jobs.length} ${mode === "saved" ? "saved" : mode === "applied" ? "applied" : ""} jobs`.replace(/\s+/g, " ")}{removedHere > 0 && !showRemoved ? ` · ${removedHere} removed` : ""}</div>
+            <button className="ghost small" disabled={!shown.length} title="Save the jobs shown (with your current filters and sort) as a spreadsheet (CSV: opens in Excel or Google Sheets)" onClick={() => {
+              const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" }) : "");
+              const rows = [
+                ["Title", "Company", "Source", "Location", "Salary", "Job type", "Working mode", "Level", "Posted", "Deadline", "Saved", "Applied", "Rejected", "Distance (km)", "Link", "Skills", "Requirements", "Description"],
+                ...shown.map((j) => [j.title, j.company, sourceOf(j), j.location, j.salary, empOf(j) || j.type, j.workplace, j.level, j.posted, j.deadline,
+                  state.saved.includes(j.id) ? "Yes" : "", day(state.applied?.[j.id]), day(state.rejected?.[j.id]), distOf(j)?.toFixed(1),
+                  j.url || (j.source ? "" : PORTAL), j.skills.join(", "), j.requirements, j.description]),
+              ];
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" }));
+              a.download = `autoresume-${mode === "all" ? "jobs" : mode}-${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              window.setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            }}>Export {shown.length}</button>
             {mode === "all" && onCleared && (() => {
               // Kept whatever you clear: saved, applied, and jobs with a tailored resume or letter (pasted jobs are never cleared).
               const keepIds = [...new Set([...state.saved, ...Object.keys(state.applied || {}), ...Object.keys(state.rejected || {}), ...Object.keys(state.tailored || {}), ...Object.keys(state.covers || {})])];
