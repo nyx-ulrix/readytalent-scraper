@@ -65,7 +65,7 @@ On a Mac, closing the window does not quit AutoResume, so a tablet can still con
   - ✦ **Tailor resume** and ✦ **Cover letter** write versions for that job; you stay on the job page.
   - Anything marked ✦ uses the AI. It asks first because it uses API tokens, which may cost money on paid keys.
 - **Resume tab:** pick a version and a template (Standard is the default), press **Edit** to change wording by hand without regenerating, then **Save PDF (A4)**. Links in the PDF are clickable.
-- **Base resume vs tailored:** your base resume shows everything you've entered, over as many A4 pages as it needs. Tailored resumes and cover letters are exactly one A4 page, never below 8 pt: longer content is shrunk, then spaced more tightly, then shown with fewer bullet points per entry (the Resume tab says how many were left off). Tailored resumes show at most 3 projects, 2 leadership roles and 18 technical skills, picked for the job.
+- **Base resume vs tailored:** your base resume shows everything you've entered, over as many A4 pages as it needs. Tailored resumes use up to two A4 pages and cover letters one page, never below 8 pt: longer content is shrunk, then spaced more tightly, then shown with fewer bullet points per entry (the Resume tab says how many were left off). Tailored resumes show at most 3 projects, 2 leadership roles and 18 technical skills, picked for the job.
 - **Save** and **Mark applied** keep track of jobs in the **Saved** and **Applied** tabs.
 
 ## AI: API key or your own account

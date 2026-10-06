@@ -364,7 +364,7 @@ SKILLS
 - ATS keywords: use a keyword only where the candidate's experience shows it, in the job's own wording, inside bullets or the skills line. Never paste a list of keywords, and never add a keyword just because the job mentions it.
 
 FIT
-- The page must fit ONE A4 page at readable size: 380-480 words in total. This limit wins over the bullet counts above.
+- The resume must fit within TWO A4 pages at readable size: 450-800 words in total. This limit wins over the bullet counts above.
 - Use only numbers that appear in the source.${prefsText(prefs)}
 
 ATS keywords: ${JSON.stringify(keywords)}

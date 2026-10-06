@@ -5,25 +5,28 @@ import { headerLinks } from "./links";
 import { visible } from "./limits";
 
 /** Smallest text allowed on a resume or letter. */
+/** Tailored resumes may run to this many A4 pages. */
+export const TAILORED_PAGES = 2;
 export const MIN_FONT_PT = 8;
 const PT_TO_PX = 96 / 72;
 
 /** What the fitting did, for the note on the Resume tab. */
-/** `pages` is set for the base resume, which is never shrunk: how many A4 pages it runs to. */
-export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean; pages?: number };
+/** `pages`: how many A4 pages a flowing resume runs to; `maxPages`: its limit (tailored resumes: 2; the base resume has none). */
+export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean; pages?: number; maxPages?: number };
 
 /**
  * Exactly one A4 sheet. If the content is taller than the page, everything inside is scaled down evenly
  * (text, spacing, headings), but never so far that the smallest text drops below MIN_FONT_PT.
  * The width is compensated so lines still span the full page. Reports whether it fits at that limit.
  */
-function A4({ className, fitKey, onFit, children, multi = false }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean; pages?: number }) => void; children: ReactNode; multi?: boolean }) {
+function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number }) => void; children: ReactNode; multi?: boolean; maxPages?: number }) {
   const area = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const fit = () => {
       const a = area.current, b = body.current;
       if (!a || !b) return;
+      b.style.zoom = "";
       const room = a.getBoundingClientRect().height * 0.995; // tiny margin so print rounding never spills
       const at = (f: number) => {
         b.style.transform = f === 1 ? "" : `scale(${f})`;
@@ -37,13 +40,32 @@ function A4({ className, fitKey, onFit, children, multi = false }: { className: 
         if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())) continue;
         smallestPx = Math.min(smallestPx, parseFloat(getComputedStyle(el).fontSize) || Infinity);
       }
+      const minScale = Math.min(1, (MIN_FONT_PT * PT_TO_PX) / (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx));
       if (multi) {
-        // Base resume: never shrunk; it flows over as many A4 pages as it needs (265 mm of text per page).
+        // Flows over A4 pages (265 mm of text per page). The base resume is never shrunk; a tailored one is shrunk
+        // (never below MIN_FONT_PT) to stay within maxPages. CSS zoom, unlike a transform, changes the layout, so
+        // the printed page breaks match.
         const perPage = (265 * 96) / 25.4;
-        onFit?.({ scale: 1, smallestPt: smallestPx === Infinity ? MIN_FONT_PT : smallestPx / PT_TO_PX, fits: true, pages: Math.max(1, Math.ceil((b.getBoundingClientRect().height - 2) / perPage)) });
+        const zoomed = (f: number) => { b.style.transform = ""; b.style.width = ""; b.style.zoom = f === 1 ? "" : String(f); return b.getBoundingClientRect().height; };
+        let f = 1;
+        let h = zoomed(1);
+        let fits = true;
+        if (maxPages) {
+          const room = maxPages * perPage - 4;
+          fits = h <= room;
+          if (!fits) {
+            fits = zoomed(minScale) <= room;
+            if (fits) {
+              let lo = minScale, hi = 1;
+              for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (zoomed(mid) <= room) lo = mid; else hi = mid; }
+              f = lo;
+            } else f = minScale;
+            h = zoomed(f);
+          }
+        }
+        onFit?.({ scale: f, smallestPt: (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx) / PT_TO_PX * f, fits, pages: Math.max(1, Math.ceil((h - 2) / perPage)), maxPages });
         return;
       }
-      const minScale = Math.min(1, (MIN_FONT_PT * PT_TO_PX) / (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx));
       let f = 1;
       let fits = at(1) <= room;
       if (!fits) {
@@ -94,10 +116,10 @@ const hiddenCount = (p: Profile, cap: number) =>
 function useDensity(key: string, onFit?: (info: FitInfo) => void) {
   const [level, setLevel] = useState(0);
   useEffect(() => setLevel(0), [key]);
-  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean; pages?: number }) => {
+  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number }) => {
     if (!r.fits && level < DENSITY.length - 1) { setLevel(level + 1); return; }
     const d = DENSITY[level];
-    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0, pages: r.pages });
+    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0, pages: r.pages, maxPages: r.maxPages });
   };
   return { level, d: DENSITY[level], report };
 }
@@ -153,7 +175,7 @@ function Labelled({ text }: { text: string }) {
   return <div className="line-plain">{m ? <><b>{m[1]}:</b> <Linkify text={m[2]} /></> : <Linkify text={text} />}</div>;
 }
 
-function StandardPage({ p, onFit, multi = false }: { p: Profile; onFit?: (info: FitInfo) => void; multi?: boolean }) {
+function StandardPage({ p, onFit, multi = false, maxPages }: { p: Profile; onFit?: (info: FitInfo) => void; multi?: boolean; maxPages?: number }) {
   const key = JSON.stringify(p);
   const { level, d, report } = useDensity(key, onFit);
   const contact = [p.phone, p.email, ...headerLinks(p)].map((s) => (s || "").trim()).filter(Boolean);
@@ -161,7 +183,7 @@ function StandardPage({ p, onFit, multi = false }: { p: Profile; onFit?: (info: 
   const additional = (p.additional || []).filter(Boolean);
   const awards = p.awards.filter(Boolean);
   return (
-    <A4 className={`page tpl-standard${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}`} onFit={report(p)} multi={multi}>
+    <A4 className={`page tpl-standard${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}|${maxPages}`} onFit={report(p)} multi={multi} maxPages={maxPages}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">
@@ -188,20 +210,20 @@ function StandardPage({ p, onFit, multi = false }: { p: Profile; onFit?: (info: 
 
 /** A4 page. Standard has its own layout; the other templates share one DOM and differ only in CSS. */
 export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
-  // Base resume (no tailoring): everything, over as many pages as needed. Tailored: the AI's picks on one A4 page.
-  const multi = !p.show;
-  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} multi={multi} />;
-  return <OtherPage p={visible(p)} template={template} onFit={onFit} multi={multi} />;
+  // Base resume (no tailoring): everything, over as many pages as needed. Tailored: the AI's picks on at most 2 A4 pages.
+  const maxPages = p.show ? TAILORED_PAGES : undefined;
+  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} multi maxPages={maxPages} />;
+  return <OtherPage p={visible(p)} template={template} onFit={onFit} multi maxPages={maxPages} />;
 }
 
-function OtherPage({ p, template, onFit, multi = false }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void; multi?: boolean }) {
+function OtherPage({ p, template, onFit, multi = false, maxPages }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void; multi?: boolean; maxPages?: number }) {
   const key = template + JSON.stringify(p);
   const { level, d, report } = useDensity(key, onFit);
   const contact = [p.email, p.phone, p.location, ...headerLinks(p)].filter(Boolean);
   const extra = p.sections || [];
   const additional = (p.additional || []).filter(Boolean);
   return (
-    <A4 className={`page tpl-${template}${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}`} onFit={report(p)} multi={multi}>
+    <A4 className={`page tpl-${template}${d.tight ? " tight" : ""}${multi ? " multi" : ""}`} fitKey={`${level}|${key}|${multi}|${maxPages}`} onFit={report(p)} multi={multi} maxPages={maxPages}>
       <header>
         <h1>{p.name || "Your Name"}</h1>
         <div className="contact">{contact.map((c, i) => <span key={i}><Linkify text={c} phone={c === p.phone} /></span>)}</div>
