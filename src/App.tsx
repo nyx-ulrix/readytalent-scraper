@@ -454,6 +454,46 @@ function useJobTasks() {
   useEffect(() => { const l = () => tick((n) => n + 1); taskListeners.add(l); return () => { taskListeners.delete(l); }; }, []);
 }
 
+/**
+ * Run one AI task for a job: ATS keywords, a tailored resume, or a cover letter (the latter two extract keywords
+ * first if needed). Progress, errors and the "ready" message go to that job's entry in the shared task store, so
+ * any view can start it and every view shows it; other jobs can run at the same time.
+ */
+async function jobAi(kind: JobWork, job: Job, state: State, update: Update) {
+  const id = job.id;
+  const done = (msg: string) => setTask(id, (t) => ({ ...t, done: msg }));
+  setTask(id, (t) => ({ running: [...t.running, kind], error: "", done: "" }));
+  try {
+    const getKeywords = async (force = false) => {
+      if (state.keywords[id] && !force) return state.keywords[id];
+      const k = await extractKeywords(aiCfg(state), job, sourceText(state.profile, state.about || ""));
+      update((s) => ({ ...s, keywords: { ...s.keywords, [id]: k } }));
+      return k;
+    };
+    if (kind === "kw") await getKeywords(true);
+    if (kind === "resume") {
+      const k = await getKeywords();
+      const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || "", skillPrefs(state, id));
+      update((s) => ({ ...s, tailored: { ...s.tailored, [id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${id}`]: new Date().toISOString() } }));
+      done("Tailored resume ready. Use View resume to see it.");
+    }
+    if (kind === "letter") {
+      const k = await getKeywords();
+      const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[id], skillPrefs(state, id));
+      update((s) => ({ ...s, covers: { ...s.covers, [id]: c }, generatedAt: { ...(s.generatedAt || {}), [`letter:${id}`]: new Date().toISOString() } }));
+      done("Cover letter ready. Use View letter to see it.");
+    }
+  } catch (e) { setTask(id, (t) => ({ ...t, error: (e as Error).message })); }
+  setTask(id, (t) => ({ ...t, running: t.running.filter((x) => x !== kind) }));
+}
+/** The token-cost question each AI button asks first. */
+const jobAiQuestion = (kind: JobWork, job: Job, state: State) => {
+  const kw = state.keywords[job.id] ? "" : " (also extracts ATS keywords)";
+  return kind === "kw" ? (state.keywords[job.id] ? "Refresh the ATS keywords for this job?" : "Extract ATS keywords for this job?")
+    : kind === "resume" ? `${state.tailored[job.id] ? "Re-tailor" : "Tailor"} your resume for this job?${kw} Runs a draft and a fact-check pass.`
+    : `${state.covers[job.id] ? "Rewrite" : "Write"} a cover letter for this job?${kw} Runs a draft and a fact-check pass.`;
+};
+
 function Detail({ job, state, update, back, open }: { job: Job; state: State; update: Update; back: () => void; open: (kind: "resume" | "letter", jobId: string) => void }) {
   useJobTasks();
   const task = taskOf(job.id);
@@ -475,20 +515,7 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
     if ((s.omitSkills || []).some((x) => x.toLowerCase() === lk)) return { ...s, omitSkills: drop(s.omitSkills) };
     return { ...s, knownSkills: [...drop(s.knownSkills), k] };
   });
-  /** Run one AI task for this job; other jobs (and this job's other tasks) can run at the same time. */
-  const run = async (name: JobWork, fn: (setDone: (msg: string) => void) => Promise<void>) => {
-    const id = job.id;
-    setTask(id, (t) => ({ running: [...t.running, name], error: "", done: "" }));
-    try { await fn((msg) => setTask(id, (t) => ({ ...t, done: msg }))); }
-    catch (e) { setTask(id, (t) => ({ ...t, error: (e as Error).message })); }
-    setTask(id, (t) => ({ ...t, running: t.running.filter((x) => x !== name) }));
-  };
-  const getKeywords = async (force = false) => {
-    if (keywords && !force) return keywords;
-    const k = await extractKeywords(aiCfg(state), job, sourceText(state.profile, state.about || ""));
-    update((s) => ({ ...s, keywords: { ...s.keywords, [job.id]: k } }));
-    return k;
-  };
+  const start = (kind: JobWork) => { if (aiConfirm(state, jobAiQuestion(kind, job, state))) void jobAi(kind, job, state, update); };
 
   return (
     <article className="detail">
@@ -524,13 +551,13 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
             })}>
             {state.rejected?.[job.id] ? `✗ Rejected ${new Date(state.rejected[job.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark rejected"}
           </button>
-          <button className="ghost" title="Uses AI tokens" onClick={() => { if (aiConfirm(state, keywords ? "Refresh the ATS keywords for this job?" : "Extract ATS keywords for this job?")) void run("kw", async () => { await getKeywords(true); }); }} disabled={busy("kw")}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
-          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.tailored[job.id] ? "Re-tailor" : "Tailor"} your resume for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("resume", async (setDone) => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || "", skillPrefs(state, job.id)); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${job.id}`]: new Date().toISOString() } })); setDone("Tailored resume ready. Use View resume to see it."); })} disabled={busy("resume")}>
+          <button className="ghost" title="Uses AI tokens" onClick={() => start("kw")} disabled={busy("kw")}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
+          <button title="Uses AI tokens" onClick={() => start("resume")} disabled={busy("resume")}>
             ✦ {busy("resume") ? "Tailoring…" : state.tailored[job.id] ? "Re-tailor resume" : "Tailor resume"}
           </button>
           {state.tailored[job.id] && <button className="ghost" onClick={() => open("resume", job.id)}>View resume</button>}
           {stamp(state, "resume", job.id) && <span className="small muted">Tailored {stamp(state, "resume", job.id)}</span>}
-          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.covers[job.id] ? "Rewrite" : "Write"} a cover letter for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("letter", async (setDone) => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id], skillPrefs(state, job.id)); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c }, generatedAt: { ...(s.generatedAt || {}), [`letter:${job.id}`]: new Date().toISOString() } })); setDone("Cover letter ready. Use View letter to see it."); })} disabled={busy("letter")}>
+          <button title="Uses AI tokens" onClick={() => start("letter")} disabled={busy("letter")}>
             ✦ {busy("letter") ? "Writing…" : state.covers[job.id] ? "Rewrite cover letter" : "Cover letter"}
           </button>
           {state.covers[job.id] && <button className="ghost" onClick={() => open("letter", job.id)}>View letter</button>}
@@ -821,6 +848,28 @@ function FitNote({ fit }: { fit: FitInfo | null }) {
   );
 }
 
+/** An empty resume / cover-letter pane: generate it here for this job (or open the posting). */
+function EmptyDoc({ kind, job, state, update, openJob }: { kind: "resume" | "letter"; job?: Job; state: State; update: Update; openJob: () => void }) {
+  const task = job ? taskOf(job.id) : null;
+  const running = !!task?.running.includes(kind);
+  const what = kind === "resume" ? "tailored resume" : "cover letter";
+  if (!job) return <div className="empty">No {what} for this job yet, and the posting is no longer in your lists.</div>;
+  return (
+    <div className="empty">
+      <div>No {what} for this job yet.</div>
+      {running ? <Progress label={kind === "resume" ? "Tailoring and fact-checking your resume" : "Writing and fact-checking your cover letter"} expectMs={60000} /> : (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button title="Uses AI tokens" onClick={() => { if (aiConfirm(state, jobAiQuestion(kind, job, state))) void jobAi(kind, job, state, update); }}>
+            ✦ {kind === "resume" ? "Tailor resume for this job" : "Write cover letter for this job"}
+          </button>
+          <button className="ghost small" onClick={openJob}>Go to the posting</button>
+        </div>
+      )}
+      {task?.error && !running && <div className="status err">{task.error}</div>}
+    </div>
+  );
+}
+
 /**
  * Resume tab: your base resume, or one job's tailored resume and cover letter side by side (stacked on a phone),
  * with a button back to that job's posting. Each document saves as its own A4 PDF.
@@ -829,6 +878,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc, openJob }: {
   state: State; update: Update; jobs: Job[]; doc: { kind: "resume" | "letter"; jobId: string }; setDoc: (d: { kind: "resume" | "letter"; jobId: string }) => void;
   openJob: (jobId: string) => void;
 }) {
+  useJobTasks();
   const paneRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [resumeFit, setResumeFit] = useState<FitInfo | null>(null);
@@ -902,7 +952,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc, openJob }: {
           <div className="preview" ref={paneRef}>
             {tailoredVersion || !jobId
               ? <div className="preview-zoom" style={{ zoom }}><ResumePage p={profile} template={state.template} onFit={setResumeFit} /></div>
-              : <div className="empty">No tailored resume for this job yet. {job && <button className="ghost small" onClick={() => openJob(jobId)}>Go to the posting to tailor one</button>}</div>}
+              : <EmptyDoc kind="resume" job={job} state={state} update={update} openJob={() => openJob(jobId)} />}
           </div>
         </section>
         {jobId && (
@@ -924,7 +974,7 @@ function ResumeTab({ state, update, jobs, doc, setDoc, openJob }: {
             <div className="preview">
               {letter
                 ? <div className="preview-zoom" style={{ zoom }}><LetterPage p={state.profile} text={letter} template={state.template} onFit={setLetterFit} /></div>
-                : <div className="empty">No cover letter for this job yet. {job && <button className="ghost small" onClick={() => openJob(jobId)}>Go to the posting to write one</button>}</div>}
+                : <EmptyDoc kind="letter" job={job} state={state} update={update} openJob={() => openJob(jobId)} />}
             </div>
           </section>
         )}
