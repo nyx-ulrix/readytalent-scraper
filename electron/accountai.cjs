@@ -41,8 +41,22 @@ function parseJson(text) {
   return null;
 }
 
-/** Ask the signed-in tool. Returns the answer text or throws with the tool's own message. */
-async function ask({ tool, model = "", prompt = "", system = "", json = false, file }) {
+/**
+ * Ask the signed-in tool, retrying briefly when several requests run at once and trip over each other (Claude Code's
+ * shared sign-in token refresh, or a short rate limit). Returns the answer text or throws with the tool's message.
+ */
+async function ask(req) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await askOnce(req); }
+    catch (e) {
+      const busy = /refresh(ing)? (the )?OAuth token|another Claude Code process|rate.?limit|429|overloaded|RESOURCE_EXHAUSTED|try again/i.test(e.message);
+      if (!busy || attempt >= 4) throw e;
+      await new Promise((r) => setTimeout(r, 2500 * attempt + Math.random() * 1500));
+    }
+  }
+}
+
+async function askOnce({ tool, model = "", prompt = "", system = "", json = false, file }) {
   if (tool !== "gemini-cli" && tool !== "claude-code") throw new Error("Unknown AI tool.");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autoresume-ai-"));
   try {

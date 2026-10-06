@@ -147,6 +147,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
   mode: ListMode; jobs: Job[]; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
   open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode; onCleared?: () => void;
 }) {
+  useJobTasks();
   const rt = mode === "all"; // show the ReadyTalent employment type / programme dropdowns
   /** Filters and sort are remembered for each list (ReadyTalent, Search, Saved, Applied), across restarts. */
   const kept = state.listFilters?.[mode] || {};
@@ -420,10 +421,10 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
           {!filtersOpen && geoStatus && <div className="small muted">{geoStatus}</div>}
         </div>
         {shown.map((j) => (
-          <div key={j.id} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
+          <div key={j.id} data-working={taskOf(j.id).running.length ? "1" : undefined} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
             {hidesRemoved && <button className="ghost small row-x" title={hidden.has(j.id) ? "Bring this job back" : "Not interested: remove from the list"} aria-label={hidden.has(j.id) ? "Restore job" : "Remove job"}
               onClick={(ev) => { ev.stopPropagation(); update((s) => { const h = new Set(s.hidden || []); if (h.has(j.id)) h.delete(j.id); else h.add(j.id); return { ...s, hidden: [...h] }; }); if (sel?.id === j.id && !hidden.has(j.id)) setSel(null); }}>{hidden.has(j.id) ? "↺" : "✕"}</button>}
-            <div className="t">{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
+            <div className="t">{taskOf(j.id).running.length ? <span className="applied-tag working-tag">✦ working</span> : null}{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
@@ -437,16 +438,33 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
   );
 }
 
+/**
+ * AI work running per job, shared by every view: several jobs can be tailored (or get letters / keywords) at the
+ * same time, switching jobs or tabs doesn't stop anything, and each job keeps its own progress and messages.
+ */
+type JobWork = "kw" | "resume" | "letter";
+type JobTask = { running: JobWork[]; error: string; done: string };
+const jobTasks = new Map<string, JobTask>();
+const taskListeners = new Set<() => void>();
+const taskOf = (id: string): JobTask => jobTasks.get(id) || { running: [], error: "", done: "" };
+const setTask = (id: string, f: (t: JobTask) => JobTask) => { jobTasks.set(id, f(taskOf(id))); taskListeners.forEach((l) => l()); };
+/** Re-render when any job's AI work starts or finishes. */
+function useJobTasks() {
+  const [, tick] = useState(0);
+  useEffect(() => { const l = () => tick((n) => n + 1); taskListeners.add(l); return () => { taskListeners.delete(l); }; }, []);
+}
+
 function Detail({ job, state, update, back, open }: { job: Job; state: State; update: Update; back: () => void; open: (kind: "resume" | "letter", jobId: string) => void }) {
-  const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState("");
+  useJobTasks();
+  const task = taskOf(job.id);
+  const busy = (w: JobWork) => task.running.includes(w);
+  const status = task.error, done = task.done;
   const keywords = state.keywords[job.id];
   const mine = new Set(state.profile.skills.map((s) => s.toLowerCase()));
   const saved = state.saved.includes(job.id);
   const appliedOn = state.applied?.[job.id] || "";
   const match = keywords ? matchKeywords(keywords, profileText(state.tailored[job.id] || state.profile)) : null;
 
-  const [done, setDone] = useState("");
   const known = new Set((state.knownSkills || []).map((k) => k.toLowerCase()));
   const omit = new Set((state.omitSkills || []).map((k) => k.toLowerCase()));
   /** Keyword chip: neutral -> "I have this" -> "leave out" -> neutral. */
@@ -457,10 +475,13 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
     if ((s.omitSkills || []).some((x) => x.toLowerCase() === lk)) return { ...s, omitSkills: drop(s.omitSkills) };
     return { ...s, knownSkills: [...drop(s.knownSkills), k] };
   });
-  const run = async (name: string, fn: () => Promise<void>) => {
-    setBusy(name); setStatus(""); setDone("");
-    try { await fn(); } catch (e) { setStatus((e as Error).message); }
-    setBusy("");
+  /** Run one AI task for this job; other jobs (and this job's other tasks) can run at the same time. */
+  const run = async (name: JobWork, fn: (setDone: (msg: string) => void) => Promise<void>) => {
+    const id = job.id;
+    setTask(id, (t) => ({ running: [...t.running, name], error: "", done: "" }));
+    try { await fn((msg) => setTask(id, (t) => ({ ...t, done: msg }))); }
+    catch (e) { setTask(id, (t) => ({ ...t, error: (e as Error).message })); }
+    setTask(id, (t) => ({ ...t, running: t.running.filter((x) => x !== name) }));
   };
   const getKeywords = async (force = false) => {
     if (keywords && !force) return keywords;
@@ -503,14 +524,14 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
             })}>
             {state.rejected?.[job.id] ? `✗ Rejected ${new Date(state.rejected[job.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark rejected"}
           </button>
-          <button className="ghost" title="Uses AI tokens" onClick={() => { if (aiConfirm(state, keywords ? "Refresh the ATS keywords for this job?" : "Extract ATS keywords for this job?")) void run("kw", async () => { await getKeywords(true); }); }} disabled={!!busy}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
-          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.tailored[job.id] ? "Re-tailor" : "Tailor"} your resume for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("resume", async () => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || "", skillPrefs(state, job.id)); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${job.id}`]: new Date().toISOString() } })); setDone("Tailored resume ready. Use View resume to see it."); })} disabled={!!busy}>
-            ✦ {busy === "resume" ? "Tailoring…" : state.tailored[job.id] ? "Re-tailor resume" : "Tailor resume"}
+          <button className="ghost" title="Uses AI tokens" onClick={() => { if (aiConfirm(state, keywords ? "Refresh the ATS keywords for this job?" : "Extract ATS keywords for this job?")) void run("kw", async () => { await getKeywords(true); }); }} disabled={busy("kw")}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
+          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.tailored[job.id] ? "Re-tailor" : "Tailor"} your resume for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("resume", async (setDone) => { const k = await getKeywords(); const t = await tailorResume(aiCfg(state), state.profile, job, k, state.about || "", skillPrefs(state, job.id)); update((s) => ({ ...s, tailored: { ...s.tailored, [job.id]: t }, generatedAt: { ...(s.generatedAt || {}), [`resume:${job.id}`]: new Date().toISOString() } })); setDone("Tailored resume ready. Use View resume to see it."); })} disabled={busy("resume")}>
+            ✦ {busy("resume") ? "Tailoring…" : state.tailored[job.id] ? "Re-tailor resume" : "Tailor resume"}
           </button>
           {state.tailored[job.id] && <button className="ghost" onClick={() => open("resume", job.id)}>View resume</button>}
           {stamp(state, "resume", job.id) && <span className="small muted">Tailored {stamp(state, "resume", job.id)}</span>}
-          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.covers[job.id] ? "Rewrite" : "Write"} a cover letter for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("letter", async () => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id], skillPrefs(state, job.id)); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c }, generatedAt: { ...(s.generatedAt || {}), [`letter:${job.id}`]: new Date().toISOString() } })); setDone("Cover letter ready. Use View letter to see it."); })} disabled={!!busy}>
-            ✦ {busy === "letter" ? "Writing…" : state.covers[job.id] ? "Rewrite cover letter" : "Cover letter"}
+          <button title="Uses AI tokens" onClick={() => aiConfirm(state, `${state.covers[job.id] ? "Rewrite" : "Write"} a cover letter for this job?${keywords ? "" : " (also extracts ATS keywords)"} Runs a draft and a fact-check pass.`) && run("letter", async (setDone) => { const k = await getKeywords(); const c = await coverLetter(aiCfg(state), state.profile, job, k, state.about || "", state.tailored[job.id], skillPrefs(state, job.id)); update((s) => ({ ...s, covers: { ...s.covers, [job.id]: c }, generatedAt: { ...(s.generatedAt || {}), [`letter:${job.id}`]: new Date().toISOString() } })); setDone("Cover letter ready. Use View letter to see it."); })} disabled={busy("letter")}>
+            ✦ {busy("letter") ? "Writing…" : state.covers[job.id] ? "Rewrite cover letter" : "Cover letter"}
           </button>
           {state.covers[job.id] && <button className="ghost" onClick={() => open("letter", job.id)}>View letter</button>}
           {stamp(state, "letter", job.id) && <span className="small muted">Written {stamp(state, "letter", job.id)}</span>}
@@ -523,7 +544,7 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
             ? <a className="small" href={job.url} target="_blank" rel="noreferrer">Open on {sourceOf(job)} ↗</a>
             : <a className="small" href={PORTAL} target="_blank" rel="noreferrer" onClick={(e) => { if (isDesktop()) { e.preventDefault(); window.desktop!.openPortal(); } }}>Apply on ReadyTalent ↗</a>}
         </div>
-        <div className={`status ${status ? "err" : ""}`} style={done && !status ? { color: "var(--ok)" } : undefined}>{status || (busy === "kw" ? "Extracting keywords…" : busy === "resume" ? "Tailoring and fact-checking your resume…" : busy === "letter" ? "Writing and fact-checking your cover letter…" : done)}</div>
+        <div className={`status ${status ? "err" : ""}`} style={done && !status ? { color: "var(--ok)" } : undefined}>{status || (task.running.length ? task.running.map((w) => ({ kw: "Extracting keywords…", resume: "Tailoring and fact-checking your resume…", letter: "Writing and fact-checking your cover letter…" })[w]).join(" · ") + " You can switch to other jobs meanwhile." : done)}</div>
         {job.source === "indeed" && <div className="small muted">Indeed only shares a summary with apps; tailoring uses this summary and the listed requirements. Open the posting for the full description.</div>}
 
         {match && (
