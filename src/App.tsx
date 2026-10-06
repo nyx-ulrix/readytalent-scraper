@@ -164,6 +164,8 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
   const [onlySaved, setOnlySaved] = keep("onlySaved", false);
   const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open" | "waiting" | "rejected">("appliedFilter", "");
   const rejectedOn = (id: string) => state.rejected?.[id];
+  const [hiringFilter, setHiringFilter] = keep<"" | "hiring" | "not">("hiringFilter", "");
+  const notHiring = (id: string) => !!state.notHiring?.[id];
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
   useEffect(() => { fetchMeta().then(setMeta); }, []);
   const { employmentType: type, course } = state;
@@ -229,7 +231,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
   });
   /** Filters currently narrowing the list (shown on the collapsed panel's header). */
   const activeFilters = [
-    origin, rt && type, rt && course, src, emp, work, lvl, company, pay, appliedFilter, onlySaved,
+    origin, rt && type, rt && course, src, emp, work, lvl, company, pay, appliedFilter, hiringFilter, onlySaved,
     skillsWant.length + skillsAvoid.length > 0, !hideExpired,
   ].filter(Boolean).length;
   const shown = useMemo(() => {
@@ -246,6 +248,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
       (!onlySaved || state.saved.includes(j.id)) &&
       (appliedFilter !== "applied" || !!state.applied?.[j.id]) && (appliedFilter !== "open" || !state.applied?.[j.id]) &&
       (appliedFilter !== "waiting" || (!!state.applied?.[j.id] && !rejectedOn(j.id))) && (appliedFilter !== "rejected" || !!rejectedOn(j.id)) &&
+      (hiringFilter !== "hiring" || !notHiring(j.id)) && (hiringFilter !== "not" || notHiring(j.id)) &&
       (!hideExpired || !j.expired) &&
       (!hidesRemoved || showRemoved || !hidden.has(j.id)) &&
       payPasses(j.salary, pay) &&
@@ -269,7 +272,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
       company: (a, b) => a.company.localeCompare(b.company),
     };
     return list.sort(cmp[sort] || cmp.posted); // a remembered sort whose target was removed
-  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, state.rejected, skillsWant, skillsAvoid, state.targets, state.hidden, showRemoved]);
+  }, [jobs, q, rt, src, emp, work, lvl, company, type, course, onlySaved, appliedFilter, hideExpired, pay, sort, origin, coords, near.km, state.saved, state.applied, state.rejected, state.notHiring, hiringFilter, skillsWant, skillsAvoid, state.targets, state.hidden, showRemoved]);
 
   return (
     <div className={`jobs ${sel ? "has-sel" : ""}`}>
@@ -281,9 +284,9 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
             <button className="ghost small" disabled={!shown.length} title="Save the jobs shown (with your current filters and sort) as a spreadsheet (CSV: opens in Excel or Google Sheets)" onClick={() => {
               const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" }) : "");
               const rows = [
-                ["Title", "Company", "Source", "Location", "Salary", "Job type", "Working mode", "Level", "Posted", "Deadline", "Saved", "Applied", "Rejected", "Distance (km)", "Link", "Skills", "Requirements", "Description"],
+                ["Title", "Company", "Source", "Location", "Salary", "Job type", "Working mode", "Level", "Posted", "Deadline", "Saved", "Applied", "Rejected", "Not hiring", "Distance (km)", "Link", "Skills", "Requirements", "Description"],
                 ...shown.map((j) => [j.title, j.company, sourceOf(j), j.location, j.salary, empOf(j) || j.type, j.workplace, j.level, j.posted, j.deadline,
-                  state.saved.includes(j.id) ? "Yes" : "", day(state.applied?.[j.id]), day(state.rejected?.[j.id]), distOf(j)?.toFixed(1),
+                  state.saved.includes(j.id) ? "Yes" : "", day(state.applied?.[j.id]), day(state.rejected?.[j.id]), day(state.notHiring?.[j.id]), distOf(j)?.toFixed(1),
                   j.url || (j.source ? "" : PORTAL), j.skills.join(", "), j.requirements, j.description]),
               ];
               const a = document.createElement("a");
@@ -389,6 +392,11 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
               <option value="waiting">Applied, waiting to hear</option>
               <option value="rejected">Rejected ({Object.keys(state.rejected || {}).length})</option>
             </select>
+            <select value={hiringFilter} onChange={(e) => setHiringFilter(e.target.value as typeof hiringFilter)} style={{ flex: "1 1 130px", width: "auto" }} title="Jobs you marked Not currently hiring">
+              <option value="">Hiring or not (all)</option>
+              <option value="hiring">Currently hiring</option>
+              <option value="not">Not currently hiring ({Object.keys(state.notHiring || {}).length})</option>
+            </select>
             <input type="number" min={0} step={100} inputMode="numeric" placeholder="Min pay $/mo" value={minPay} onChange={(e) => setMinPay(e.target.value)} style={{ flex: "1 1 120px" }} title="Pay is compared per month (yearly ÷ 12, hourly × 173)" />
             <label className="small muted" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}><input type="checkbox" checked={payListed} onChange={(e) => setPayListed(e.target.checked)} style={{ width: "auto" }} />pay listed</label>
           </div>
@@ -396,7 +404,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
             <label className="small muted" style={{ margin: 0, flex: 1 }}><input type="checkbox" checked={hideExpired} onChange={(e) => setHideExpired(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Hide delisted · {shown.length} of {jobs.length}</label>
             {removedHere > 0 && <label className="small muted" style={{ margin: 0 }}><input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />Show removed ({removedHere})</label>}
             <button className="ghost" onClick={() => setShowSkills(!showSkills)}>Skills{skillsWant.length + skillsAvoid.length ? ` (${skillsWant.length + skillsAvoid.length})` : ""}</button>
-            {(activeFilters || q) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); setAppliedFilter(""); setOnlySaved(false); setHideExpired(true); if (origin) { setNearDraft(""); void locate(""); } }}>Clear</button> : null}
+            {(activeFilters || q) ? <button className="ghost" onClick={() => { update(rt ? { employmentType: "", course: "", skillsWant: [], skillsAvoid: [] } : { skillsWant: [], skillsAvoid: [] }); setQ(""); setMinPay(""); setPayListed(false); setSrc(""); setEmp(""); setWork(""); setLvl(""); setCompany(""); setAppliedFilter(""); setHiringFilter(""); setOnlySaved(false); setHideExpired(true); if (origin) { setNearDraft(""); void locate(""); } }}>Clear</button> : null}
           </div>
           {showSkills && (
             <div className="skills-panel">
@@ -424,7 +432,7 @@ function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared 
           <div key={j.id} data-working={taskOf(j.id).running.length ? "1" : undefined} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
             {hidesRemoved && <button className="ghost small row-x" title={hidden.has(j.id) ? "Bring this job back" : "Not interested: remove from the list"} aria-label={hidden.has(j.id) ? "Restore job" : "Remove job"}
               onClick={(ev) => { ev.stopPropagation(); update((s) => { const h = new Set(s.hidden || []); if (h.has(j.id)) h.delete(j.id); else h.add(j.id); return { ...s, hidden: [...h] }; }); if (sel?.id === j.id && !hidden.has(j.id)) setSel(null); }}>{hidden.has(j.id) ? "↺" : "✕"}</button>}
-            <div className="t">{taskOf(j.id).running.length ? <span className="applied-tag working-tag">✦ working</span> : null}{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
+            <div className="t">{taskOf(j.id).running.length ? <span className="applied-tag working-tag">✦ working</span> : null}{notHiring(j.id) ? <span className="applied-tag paused-tag">⏸ Not hiring</span> : null}{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
@@ -550,6 +558,10 @@ function Detail({ job, state, update, back, open }: { job: Job; state: State; up
               return { ...s, rejected: r, applied: s.applied?.[job.id] ? s.applied : { ...(s.applied || {}), [job.id]: r[job.id] } };
             })}>
             {state.rejected?.[job.id] ? `✗ Rejected ${new Date(state.rejected[job.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" })}` : "Mark rejected"}
+          </button>
+          <button className={state.notHiring?.[job.id] ? "paused-on" : "ghost"} title={state.notHiring?.[job.id] ? "Click to undo" : "Mark that this company isn't currently hiring for this role"}
+            onClick={() => update((s) => { const n = { ...(s.notHiring || {}) }; if (n[job.id]) delete n[job.id]; else n[job.id] = new Date().toISOString(); return { ...s, notHiring: n }; })}>
+            {state.notHiring?.[job.id] ? `⏸ Not hiring (since ${new Date(state.notHiring[job.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })})` : "Not currently hiring"}
           </button>
           <button className="ghost" title="Uses AI tokens" onClick={() => start("kw")} disabled={busy("kw")}>✦ {keywords ? "Refresh keywords" : "ATS keywords"}</button>
           <button title="Uses AI tokens" onClick={() => start("resume")} disabled={busy("resume")}>
