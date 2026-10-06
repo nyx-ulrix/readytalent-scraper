@@ -48,26 +48,27 @@ function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { c
         // Flows over A4 pages (265 mm of text per page). The base resume is never shrunk; a tailored one is shrunk
         // (never below MIN_FONT_PT) to stay within maxPages. CSS zoom, unlike a transform, changes the layout, so
         // the printed page breaks match.
-        const perPage = (265 * 96) / 25.4;
-        const zoomed = (f: number) => { b.style.transform = ""; b.style.width = ""; b.style.zoom = f === 1 ? "" : String(f); return b.getBoundingClientRect().height; };
+        // 265 mm of text per page, measured at the same on-screen zoom as the content (the preview zooms the page to
+        // fit the window), so on-screen measurements match the printed layout.
+        const sheet = a.parentElement!.getBoundingClientRect().width / ((210 * 96) / 25.4);
+        const perPage = ((265 * 96) / 25.4) * (sheet || 1);
+        const zoomed = (f: number) => { b.style.transform = ""; b.style.width = ""; b.style.zoom = f === 1 ? "" : String(f); return paginate(b, perPage); };
         let f = 1;
-        let h = zoomed(1);
+        let laid = zoomed(1);
         let fits = true;
         if (maxPages) {
-          const room = maxPages * perPage - 4;
-          fits = h <= room;
+          fits = laid.pages <= maxPages;
           if (!fits) {
-            fits = zoomed(minScale) <= room;
+            fits = zoomed(minScale).pages <= maxPages;
             if (fits) {
               let lo = minScale, hi = 1;
-              for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (zoomed(mid) <= room) lo = mid; else hi = mid; }
+              for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (zoomed(mid).pages <= maxPages) lo = mid; else hi = mid; }
               f = lo;
             } else f = minScale;
-            h = zoomed(f);
+            laid = zoomed(f);
           }
         }
-        const pages = Math.max(1, Math.ceil((h - 2) / perPage));
-        onFit?.({ scale: f, smallestPt: (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx) / PT_TO_PX * f, fits, pages, maxPages, lastFill: Math.min(1, ((h - 2) - (pages - 1) * perPage) / perPage) });
+        onFit?.({ scale: f, smallestPt: (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx) / PT_TO_PX * f, fits, pages: laid.pages, maxPages, lastFill: laid.lastFill });
         return;
       }
       let f = 1;
@@ -91,6 +92,38 @@ function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { c
       <div className="page-area" ref={area}><div className="page-fit" ref={body}>{children}</div></div>
     </div>
   );
+}
+
+/**
+ * Count pages the way the printer lays them out: an entry (or the header) is never split across pages, so if it
+ * doesn't fit in what's left of a page it moves to the next one, leaving a gap; a heading stays with what follows it.
+ * Measuring total height alone undercounts, which let a "2 page" resume print onto a third page.
+ */
+function paginate(root: HTMLElement, perPage: number): { pages: number; lastFill: number } {
+  const page = perPage * 0.985; // a little slack for print rounding
+  const origin = root.getBoundingClientRect().top;
+  const blocks: { top: number; bottom: number; atomic: boolean }[] = [];
+  const add = (els: Element[], atomic: boolean) => {
+    const rs = els.map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0);
+    if (rs.length) blocks.push({ top: Math.min(...rs.map((r) => r.top)) - origin, bottom: Math.max(...rs.map((r) => r.bottom)) - origin, atomic });
+  };
+  for (const child of Array.from(root.children)) {
+    if (child.tagName !== "SECTION") { add([child], true); continue; }
+    const kids = Array.from(child.children);
+    const head = kids[0]?.tagName === "H2" ? kids.shift()! : null;
+    if (!kids.length && head) add([head], true);
+    // The heading travels with the first item; entries and lists stay whole; plain paragraphs may split.
+    kids.forEach((k, i) => add(i === 0 && head ? [head, k] : [k], i === 0 || k.classList.contains("entry") || k.tagName === "UL" || k.classList.contains("line-plain")));
+  }
+  let pages = 1, start = 0, shift = 0;
+  for (const b of blocks) {
+    const top = b.top + shift, bottom = b.bottom + shift;
+    if (bottom <= start + page) continue;
+    if (b.atomic && bottom - top <= page && top > start) { shift += start + page - top; start += page; pages++; } // move it to the next page
+    else while (bottom > start + page) { start += page; pages++; } // too tall to keep whole: it splits
+  }
+  const end = (blocks.length ? blocks[blocks.length - 1].bottom : 0) + shift;
+  return { pages, lastFill: Math.max(0, Math.min(1, (end - start) / page)) };
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
