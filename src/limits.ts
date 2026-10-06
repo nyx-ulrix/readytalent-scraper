@@ -15,6 +15,9 @@ export const isLeadership = (title: string) => /leadership|co-?curricular|\bccas
 /** Entry limit for a custom section (Infinity = no limit). */
 export const sectionLimit = (title: string) => (isLeadership(title) ? MAX_LEADERSHIP : Infinity);
 
+/** How many more stored projects a tailored resume could add to fill its second page. */
+export const spareProjects = (p: Profile) => (p.show ? p.projects.slice(shownCount(p, "projects", MAX_PROJECTS)).filter((e) => !e.onlyIfVeryRelevant).length : 0);
+
 /** Keys in `p.show`: "projects", "skills", or "sec:" + section title. */
 export const sectionKey = (title: string) => `sec:${title}`;
 export const shownCount = (p: Profile, key: string, max: number) => Math.min(p.show?.[key] ?? max, max);
@@ -23,12 +26,15 @@ export const shownCount = (p: Profile, key: string, max: number) => Math.min(p.s
  * The part of the profile that goes on the page. Your base resume (no tailoring) shows everything, over as many
  * A4 pages as it needs; a tailored resume shows what the AI picked for that job (at most the limits above).
  */
-export function visible(p: Profile): Profile {
+export function visible(p: Profile, extraProjects = 0): Profile {
   if (!p.show) return p;
+  const n = shownCount(p, "projects", MAX_PROJECTS);
   return {
     ...p,
     skills: p.skills.slice(0, shownCount(p, "skills", MAX_SKILLS)),
-    projects: p.projects.slice(0, shownCount(p, "projects", MAX_PROJECTS)),
+    // `extraProjects`: more of your stored projects (your ranking order, skipping "only if very relevant" ones),
+    // added when a tailored resume would otherwise leave its second page mostly empty.
+    projects: [...p.projects.slice(0, n), ...p.projects.slice(n).filter((e) => !e.onlyIfVeryRelevant).slice(0, extraProjects)],
     sections: (p.sections || []).map((s) => ({ ...s, entries: s.entries.slice(0, shownCount(p, sectionKey(s.title), sectionLimit(s.title))) })),
   };
 }

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { Entry, Profile, Template } from "./types";
 import { Linkify } from "./linkify";
 import { headerLinks } from "./links";
-import { visible } from "./limits";
+import { spareProjects, visible } from "./limits";
 
 /** Smallest text allowed on a resume or letter. */
 /** Tailored resumes may run to this many A4 pages. */
@@ -11,15 +11,18 @@ export const MIN_FONT_PT = 8;
 const PT_TO_PX = 96 / 72;
 
 /** What the fitting did, for the note on the Resume tab. */
-/** `pages`: how many A4 pages a flowing resume runs to; `maxPages`: its limit (tailored resumes: 2; the base resume has none). */
-export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean; pages?: number; maxPages?: number };
+/**
+ * `pages`: how many A4 pages a flowing resume runs to; `maxPages`: its limit (tailored resumes: 2; the base resume has
+ * none); `lastFill`: how full the last page is (0..1); `extraProjects`: stored projects added to fill page 2.
+ */
+export type FitInfo = { scale: number; smallestPt: number; hiddenBullets: number; tight: boolean; fits: boolean; pages?: number; maxPages?: number; lastFill?: number; extraProjects?: number };
 
 /**
  * Exactly one A4 sheet. If the content is taller than the page, everything inside is scaled down evenly
  * (text, spacing, headings), but never so far that the smallest text drops below MIN_FONT_PT.
  * The width is compensated so lines still span the full page. Reports whether it fits at that limit.
  */
-function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number }) => void; children: ReactNode; multi?: boolean; maxPages?: number }) {
+function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { className: string; fitKey: string; onFit?: (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number; lastFill?: number }) => void; children: ReactNode; multi?: boolean; maxPages?: number }) {
   const area = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -63,7 +66,8 @@ function A4({ className, fitKey, onFit, children, multi = false, maxPages }: { c
             h = zoomed(f);
           }
         }
-        onFit?.({ scale: f, smallestPt: (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx) / PT_TO_PX * f, fits, pages: Math.max(1, Math.ceil((h - 2) / perPage)), maxPages });
+        const pages = Math.max(1, Math.ceil((h - 2) / perPage));
+        onFit?.({ scale: f, smallestPt: (smallestPx === Infinity ? MIN_FONT_PT * PT_TO_PX : smallestPx) / PT_TO_PX * f, fits, pages, maxPages, lastFill: Math.min(1, ((h - 2) - (pages - 1) * perPage) / perPage) });
         return;
       }
       let f = 1;
@@ -116,10 +120,10 @@ const hiddenCount = (p: Profile, cap: number) =>
 function useDensity(key: string, onFit?: (info: FitInfo) => void) {
   const [level, setLevel] = useState(0);
   useEffect(() => setLevel(0), [key]);
-  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number }) => {
+  const report = (p: Profile | null) => (r: { scale: number; smallestPt: number; fits: boolean; pages?: number; maxPages?: number; lastFill?: number }) => {
     if (!r.fits && level < DENSITY.length - 1) { setLevel(level + 1); return; }
     const d = DENSITY[level];
-    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0, pages: r.pages, maxPages: r.maxPages });
+    onFit?.({ scale: r.scale, smallestPt: r.smallestPt, fits: r.fits, tight: d.tight, hiddenBullets: p ? hiddenCount(p, d.bullets) : 0, pages: r.pages, maxPages: r.maxPages, lastFill: r.lastFill });
   };
   return { level, d: DENSITY[level], report };
 }
@@ -212,8 +216,25 @@ function StandardPage({ p, onFit, multi = false, maxPages }: { p: Profile; onFit
 export function ResumePage({ p, template, onFit }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void }) {
   // Base resume (no tailoring): everything, over as many pages as needed. Tailored: the AI's picks on at most 2 A4 pages.
   const maxPages = p.show ? TAILORED_PAGES : undefined;
-  if (template === "standard") return <StandardPage p={visible(p)} onFit={onFit} multi maxPages={maxPages} />;
-  return <OtherPage p={visible(p)} template={template} onFit={onFit} multi maxPages={maxPages} />;
+  // A tailored resume that only just spills onto page 2 gets more of your stored projects, one at a time, until
+  // page 2 is at least half full, as long as it still fits 2 pages at full size; otherwise the last one is taken back.
+  const key = JSON.stringify(p) + template;
+  const [fill, setFill] = useState<{ key: string; extra: number; done: boolean }>({ key, extra: 0, done: !p.show });
+  const cur = fill.key === key ? fill : { key, extra: 0, done: !p.show };
+  if (fill.key !== key) setFill(cur);
+  const spare = spareProjects(p);
+  const fitted = (info: FitInfo) => {
+    if (!cur.done) {
+      const full = info.fits && info.scale > 0.999 && !info.hiddenBullets && (info.pages || 1) <= TAILORED_PAGES;
+      if (cur.extra > 0 && !full) { setFill({ key, extra: cur.extra - 1, done: true }); return; } // last one didn't fit
+      if (full && info.pages === TAILORED_PAGES && (info.lastFill ?? 1) < 0.5 && cur.extra < spare) { setFill({ key, extra: cur.extra + 1, done: false }); return; }
+      setFill({ key, extra: cur.extra, done: true });
+    }
+    onFit?.({ ...info, extraProjects: cur.extra });
+  };
+  const shown = visible(p, cur.extra);
+  if (template === "standard") return <StandardPage p={shown} onFit={fitted} multi maxPages={maxPages} />;
+  return <OtherPage p={shown} template={template} onFit={fitted} multi maxPages={maxPages} />;
 }
 
 function OtherPage({ p, template, onFit, multi = false, maxPages }: { p: Profile; template: Template; onFit?: (info: FitInfo) => void; multi?: boolean; maxPages?: number }) {

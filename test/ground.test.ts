@@ -132,3 +132,14 @@ console.log("ground self-check OK");
   const out = groundProfile(src, { sections: [{ title: "Hackathons", entries: [ent("SMU Agnes AI Hackathon", "SMU", ["Built Fitz in 24 hours and deployed it on Vercel.", "Integrated a Yahboom robot car."])] }] } as Partial<Profile>, text);
   assert.deepEqual(out.sections[0].entries[0].details, ["Built Fitz in 24 hours and deployed it on Vercel."], "project facts merge into its hackathon; an unrelated project's name is still rejected (reverts to nothing in that slot)");
 }
+
+// Filling page 2: extra stored projects come in your ranking order and skip "only if very relevant" ones.
+{
+  const { visible, spareProjects } = await import("../src/limits.ts");
+  const e = (t: string, low = false) => ({ title: t, org: "", location: "", dates: "", details: ["x"], ...(low ? { onlyIfVeryRelevant: true } : {}) });
+  const t = { ...orig, projects: [e("P1"), e("P2"), e("S1"), e("S2", true), e("S3")], show: { projects: 2 } };
+  assert.equal(spareProjects(t), 2);
+  assert.deepEqual(visible(t, 0).projects.map((x) => x.title), ["P1", "P2"]);
+  assert.deepEqual(visible(t, 2).projects.map((x) => x.title), ["P1", "P2", "S1", "S3"]);
+  assert.equal(spareProjects({ ...t, show: undefined }), 0, "the base resume already shows everything");
+}

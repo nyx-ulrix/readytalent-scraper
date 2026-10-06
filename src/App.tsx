@@ -789,6 +789,7 @@ function FitNote({ fit }: { fit: FitInfo | null }) {
     <span className={`small fit-note ${fit.hiddenBullets || !fit.fits ? "warn" : "muted"}`} title={base ? "Your base resume shows everything you've entered; tailored resumes are fitted to at most 2 A4 pages" : `Tailored resumes fit at most ${fit.maxPages || 1} A4 page${(fit.maxPages || 1) > 1 ? "s" : ""}; text is never smaller than ${MIN_FONT_PT} pt`}>
       {base ? `${fit.pages} A4 page${fit.pages === 1 ? "" : "s"} · everything you've entered · tailored resumes fit at most 2 pages` : [
         fit.maxPages ? `${fit.pages} of ${fit.maxPages} A4 pages` : "One A4 page",
+        fit.extraProjects ? `${fit.extraProjects} more project${fit.extraProjects === 1 ? "" : "s"} added to fill page 2` : "",
         `smallest text ${fit.smallestPt.toFixed(1)} pt`,
         fit.scale < 0.999 ? `shrunk to ${Math.round(fit.scale * 100)}%` : "",
         fit.tight ? "tighter spacing" : "",
