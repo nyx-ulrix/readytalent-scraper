@@ -87,6 +87,30 @@ Your data stays on your devices. Only the text you choose to send to your AI pro
 
 ## How it works
 
+```mermaid
+flowchart LR
+  subgraph Devices["Your devices"]
+    W["Laptop window"]
+    P["Phone / tablet<br/>same Wi-Fi"]
+  end
+  subgraph Laptop["Laptop: AutoResume (Electron)"]
+    S["Local server :4242<br/>UI + JSON API"]
+    SC["Scrapers<br/>ReadyTalent, LinkedIn,<br/>Indeed, pasted links"]
+    ACC["Signed-in AI<br/>Gemini CLI / Claude Code"]
+    D[("Your data<br/>stays on the laptop")]
+  end
+  W --> S
+  P --> S
+  S --> D
+  S --> SC
+  S --> ACC
+  SC --> J["Job sites"]
+  W & P -. "API key" .-> AI["AI providers"]
+  ACC --> AI
+```
+
+Full diagrams (code map, tailoring and grounding, multi-device saving, scraping, page fitting, AI routing, releases): **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 **ReadyTalent.** The app opens the portal in a hidden, in-memory window (a fresh session every launch), signs in through SIT's ADFS page with your saved login, calls the portal's own job API and saves the jobs in the app's data folder. Re-scraping only fetches new jobs. If sign-in needs you (wrong password, MFA), the window is shown so you can finish, then press Scrape again. The Employment Types and Programmes filters are copied from the portal's own search page.
 
 **LinkedIn and Indeed.** Only ticked search terms are searched, and only when you press Search, in a hidden browser window with pauses between pages. LinkedIn jobs include the full description; Indeed jobs include the summary, pay and tags from its search page, because Indeed keeps full descriptions behind a human-verification check. Results can be filtered by source, job type, working mode, level, company and pay (compared per month, so yearly and hourly pay line up).
@@ -101,6 +125,57 @@ Your data stays on your devices. Only the text you choose to send to your AI pro
 
 **AI only on click.** Nothing calls the AI automatically. Every AI action is marked ✦ and asks for confirmation, naming the provider and model and warning that it consumes tokens. The warning can be turned off in Settings.
 
+## Platforms and services
+
+What AutoResume runs on, what it connects to, and what each needs. Nothing else is contacted, and your data stays on your laptop.
+
+**Where it runs**
+
+| Platform | What for | Needed? |
+|---|---|---|
+| Windows 10/11 (64-bit) | The desktop app (installer from Releases) | One of Windows or macOS |
+| macOS (Apple Silicon or Intel) | The desktop app (dmg/zip from Releases) | One of Windows or macOS |
+| Phone or tablet browser (Safari, Chrome…) on the same Wi-Fi | Use AutoResume away from the laptop; it talks to the laptop's local server on port 4242 | Optional; the laptop app must be open, and Windows Firewall must allow it on Private networks |
+
+**Job sources**
+
+| Service | Where | What for | Needed? |
+|---|---|---|---|
+| SIT ReadyTalent + SIT sign-in (ADFS) | `readytalent2.singaporetech.edu.sg` | ReadyTalent job postings | An SIT student account (sign-in saved encrypted with Windows DPAPI / the macOS Keychain) |
+| LinkedIn (public guest job pages) | `www.linkedin.com/jobs-guest/…` | LinkedIn search, job details, LinkedIn links you paste | No account |
+| Indeed (public search pages) | `<country>.indeed.com`, e.g. `sg.indeed.com` | Indeed search results (summary, pay, tags) | No account |
+| Any job website | The link you paste | Reads the posting's published job data (title, company, pay, dates) | No account; sites behind a bot check need the text pasted instead |
+
+**Maps (distance filter)**
+
+| Service | Where | What for | Needed? |
+|---|---|---|---|
+| OneMap (Singapore Land Authority) | `www.onemap.gov.sg` | Coordinates for Singapore addresses, postcodes and MRT stations | No account |
+| OpenStreetMap Nominatim | `nominatim.openstreetmap.org` | Fallback for broader places; about 1 request a second, results cached on the laptop | No account |
+
+**AI (pick one in Settings → AI)**
+
+| Provider | Where | How you sign in | Needed? |
+|---|---|---|---|
+| Google Gemini API | `generativelanguage.googleapis.com` (key from `aistudio.google.com`) | API key | One AI option is needed for ✦ features |
+| OpenAI API | `api.openai.com` | API key | " |
+| Qwen (Alibaba DashScope) | `dashscope-intl.aliyuncs.com` | API key | " |
+| Claude (Anthropic API) | `api.anthropic.com` | API key | " |
+| Perplexity | `api.perplexity.ai` | API key | " |
+| Gemini, signed in with Google | **Gemini CLI** on the laptop (`npm install -g @google/gemini-cli`), Google's servers | Your Google account (free daily quota) | " |
+| Claude, signed in with your Claude account | **Claude Code** on the laptop, Anthropic's servers | Your Claude Pro/Max plan | " |
+| OpenRouter public price list | `openrouter.ai/api/v1/models` | Shows model prices in Settings | No account; optional |
+
+**Building and releasing**
+
+| Platform | What for |
+|---|---|
+| Node.js 22.6+ (CI uses 24) and pnpm 11 | Install, test, build (`package.json` pins the pnpm version) |
+| Electron 37, React 19, Vite 8, TypeScript 5.7, electron-builder 26 | App shell, UI, bundling, installers |
+| GitHub (`nyx-ulrix/readytalent-scraper`) | Source code, issues |
+| GitHub Actions (`windows-latest`, `macos-latest`, `ubuntu-latest`) | Builds the Windows and Mac installers on each `v*` tag and publishes the release |
+| GitHub Releases | Where the installers are downloaded from |
+
 ## Development
 
 ```bash
@@ -113,6 +188,8 @@ pnpm run dist:mac              # macOS dmg + zip (arm64, x64); must run on a Mac
 git tag v1.2.3 && git push --tags  # CI builds Windows + macOS and publishes a GitHub release
 ```
 
-Self-checks: `electron/scrape.test.cjs` (ReadyTalent scraper against a fake portal API), `test/ground.test.ts` (grounding guard), `test/markdown.test.ts` (Markdown template round trip), `test/boards.test.cjs` (LinkedIn/Indeed filters), `test/pay.test.ts` (pay normalisation), `test/linkify.test.ts` (clickable links and link fields). The `.ts` tests need Node 22.6 or newer.
+Self-checks (`pnpm test`; the `.ts` tests need Node 22.6 or newer) are listed with what they cover in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#tests).
 
-Files: `electron/main.cjs` (LAN server on :4242, ReadyTalent window, PDF), `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/boards.cjs` (LinkedIn/Indeed search), `src/ai.ts` (providers, models, keywords, tailoring, cover letters), `src/ground.ts` (fact guard), `src/markdown.ts` (.md template), `src/Resume.tsx` + `src/styles.css` (A4 templates), `.github/workflows/release.yml` (release builds).
+Files: `electron/main.cjs` (LAN server and API on :4242, ReadyTalent sign-in, geocoding, PDF), `electron/scrape.cjs` (runs inside the signed-in portal page), `electron/boards.cjs` (LinkedIn/Indeed search, pasted links), `electron/accountai.cjs` (signed-in Gemini CLI / Claude Code), `src/App.tsx` (all tabs), `src/store.ts` (revision-checked state sync), `src/ai.ts` (providers, prompts, keywords, tailoring, cover letters), `src/ground.ts` (fact guard), `src/limits.ts` (what each resume shows), `src/merge.ts` (update details without overwriting), `src/Resume.tsx` + `src/styles.css` (A4 templates and pagination), `.github/workflows/release.yml` (release builds).
+
+**Code map (graphify).** `graphify-out/` holds a knowledge graph of this codebase built with [graphify](https://github.com/safishamsi/graphify): open `graphify-out/graph.html` in a browser for an interactive map, read `graphify-out/GRAPH_REPORT.md` for the summary (key modules, clusters, surprising links), or use `graph.json` with graphify's `query` / `path` / `explain` commands.
