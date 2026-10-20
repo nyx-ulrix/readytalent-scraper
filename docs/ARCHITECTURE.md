@@ -65,7 +65,7 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph UI["src/ (React, runs in every device's browser)"]
-    App["App.tsx<br/>tabs: Jobs, Find jobs, Targets, Saved,<br/>Applied, Resume, Details, Settings"]
+    App["App.tsx (tab shell) + pages/*.tsx<br/>Jobs, Find jobs, Targets, Resume,<br/>Settings, Details; jobTasks.ts,<br/>appShared.ts, ui/common.tsx"]
     Store["store.ts<br/>state load/save with revision check,<br/>API clients"]
     AIts["ai.ts<br/>prompts, providers, keywords,<br/>tailoring, cover letters, import"]
     Ground["ground.ts<br/>fact grounding, skill prefs,<br/>similarity score"]

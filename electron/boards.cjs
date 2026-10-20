@@ -349,5 +349,7 @@ module.exports = {
   pageText,
   stopBoards: () => { cancelled = true; },
   showBoardWindow: () => { const w = boardWindow(); w.show(); w.focus(); },
+  /** Close the hidden job-board window (when the main window closes, so nothing keeps running unseen). */
+  closeBoardWindow: () => { if (win && !win.isDestroyed()) win.destroy(); },
   _test: { skillsIn, indeedHost, passes, workFrom, empKey, postingJob, salaryText, linkedinId, publicUrl },
 };

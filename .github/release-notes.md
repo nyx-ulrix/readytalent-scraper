@@ -4,9 +4,9 @@ AutoResume scrapes jobs from SIT's ReadyTalent portal and, when you ask, from Li
 
 | System | File |
 | --- | --- |
-| Windows 10/11 (64-bit) | `AutoResume-Setup-1.3.7-win-x64.exe` |
-| macOS, Apple Silicon (M1 or later) | `AutoResume-1.3.7-mac-arm64.dmg` |
-| macOS, Intel | `AutoResume-1.3.7-mac-x64.dmg` |
+| Windows 10/11 (64-bit) | `AutoResume-Setup-1.3.8-win-x64.exe` |
+| macOS, Apple Silicon (M1 or later) | `AutoResume-1.3.8-mac-arm64.dmg` |
+| macOS, Intel | `AutoResume-1.3.8-mac-x64.dmg` |
 
 The `.zip` files hold the same Mac apps for anyone who prefers them over a disk image.
 
@@ -25,6 +25,11 @@ xattr -dr com.apple.quarantine /Applications/AutoResume.app
 ```
 
 Allow incoming connections when asked if you want to use AutoResume from a tablet. Saved ReadyTalent sign-in details are encrypted with the macOS Keychain on a Mac and with your Windows account on Windows. Full setup steps are in the [README](https://github.com/nyx-ulrix/readytalent-scraper#readme).
+
+## What's new in 1.3.8
+
+- **Fixed: "needs login" prompts after closing AutoResume.** Closing the window used to leave the app running in the background with a hidden ReadyTalent page still signed in; when that session expired it asked you to log in again. Closing the window now closes the hidden ReadyTalent and job-board pages too (on Windows the app quits completely), the hidden portal page also closes after each scrape when your sign-in is saved, and websites inside AutoResume can no longer show notifications.
+- Under the hood: the interface code is split into one file per page (Jobs, Find jobs, Targets, Resume, Settings, Details) plus shared pieces, which makes it easier to maintain. Nothing changes in how the app looks or works.
 
 ## What's new in 1.3.7
 

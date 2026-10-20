@@ -4,13 +4,13 @@
  * - Opens ReadyTalent in an in-memory session (fresh sign-in every launch) and scrapes from it.
  * - Saves jobs.json / state.json in the user data folder.
  */
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, session } = require("electron");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
-const { searchBoards, stopBoards, showBoardWindow, scrapePosting, pageText } = require("./boards.cjs");
+const { searchBoards, stopBoards, showBoardWindow, closeBoardWindow, scrapePosting, pageText } = require("./boards.cjs");
 const accountAi = require("./accountai.cjs");
 
 const PORT = 4242;
@@ -294,6 +294,9 @@ ipcMain.handle("rt:scrape", async (e) => {
     return { added: r.jobs.length, total: merged.length };
   } finally {
     wc.off("console-message", onMsg);
+    // Don't leave a signed-in portal page running hidden: when its session expires it asks you to log in again.
+    // With a saved sign-in the next scrape signs in by itself; a window you're using yourself is left open.
+    if (readCreds() && rtWin && !rtWin.isDestroyed() && !rtWin.isVisible()) rtWin.destroy();
   }
 });
 
@@ -361,11 +364,29 @@ function createMainWindow() {
   });
   mainWin.setMenuBarVisibility(false); // Windows/Linux; macOS keeps its app menu (needed for Cmd+C / Cmd+V)
   mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
-  mainWin.on("closed", () => { mainWin = null; });
+  mainWin.on("closed", () => {
+    mainWin = null;
+    // The hidden ReadyTalent and job-board windows would otherwise keep the app running unseen (Windows only quits
+    // when every window is closed), with a portal session that later asks you to log in again.
+    if (rtWin && !rtWin.isDestroyed()) rtWin.destroy();
+    closeBoardWindow();
+    if (process.platform !== "darwin") app.quit(); // macOS convention: the app (and the tablet server) keeps running
+  });
   return mainWin.loadURL(`http://127.0.0.1:${PORT}/`);
 }
 
+/** Websites loaded in the hidden windows may not show notifications or ask for permissions; the app never notifies. */
+function lockPermissions() {
+  for (const part of ["readytalent", "jobboards"]) {
+    const s = session.fromPartition(part);
+    s.setPermissionRequestHandler((_wc, _permission, done) => done(false));
+    s.setPermissionCheckHandler(() => false);
+  }
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(permission !== "notifications"));
+}
+
 async function boot() {
+  lockPermissions();
   try { await serve(); } catch (err) {
     dialog.showErrorBox("AutoResume", `Port ${PORT} is busy: ${err.message}`);
     app.quit();
