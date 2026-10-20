@@ -7,3 +7,5 @@ graphify-out/.graphify_python
 graphify-out/.graphify_root
 *.log
 .claude/
+graphify-out/2026-*/
+graphify-out/*.sig

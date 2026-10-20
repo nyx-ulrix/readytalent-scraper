@@ -1,1 +1,18 @@
-{"0": "App UI and AI Triggers", "1": "Grounding and Tailoring Rules", "2": "Job Boards and Pasted Links", "3": "Server, Entry and Package", "4": "AI Providers and Prompts", "5": "Electron Main Process", "6": "Page Layout and Links", "7": "Concurrent and Signed-in AI", "8": "Markdown Import and Merge", "9": "Installer Build Config", "10": "Data Files and Scraping", "11": "State Sync Store", "12": "Release Pipeline", "13": "TypeScript Config"}
+{
+  "0": "Jobs.tsx",
+  "1": "ground.ts",
+  "2": "boards.cjs",
+  "3": "package.json",
+  "4": "ai.ts",
+  "5": "main.cjs",
+  "6": "Resume.tsx",
+  "7": "accountai.cjs",
+  "8": "merge.ts",
+  "9": "build",
+  "10": "scrape.test.cjs",
+  "11": "Details.tsx",
+  "12": "build job (windows/macos matrix)",
+  "13": "compilerOptions",
+  "14": "ref_node_assert",
+  "15": "vite.config.ts"
+}
