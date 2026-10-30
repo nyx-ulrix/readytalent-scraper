@@ -9,3 +9,4 @@ graphify-out/.graphify_root
 .claude/
 graphify-out/2026-*/
 graphify-out/*.sig
+.taste-skill/

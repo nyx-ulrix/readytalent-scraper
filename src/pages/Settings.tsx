@@ -44,13 +44,7 @@ export function Settings({ part, state, update }: { part: "settings" | "details"
       {isAccount(state.provider) && <AccountSetup tool={state.provider as "gemini-cli" | "claude-code"} model={state.models?.[state.provider] || ""} />}
       <ModelPicker state={state} update={update} />
       <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" style={{ width: "auto" }} checked={state.warnTokens !== false} onChange={(e) => update({ warnTokens: e.target.checked })} /> Ask before every AI action (✦). AI actions consume API tokens; nothing runs without your click.</label>
-      <div className="small muted">API keys are stored only on this device / your laptop. Signed-in Gemini and Claude need no key.</div>
-      {(Object.keys(PROVIDERS) as Provider[]).filter((p) => KEY_OF[p]).map((p) => (
-        <div key={p}>
-          <label>{PROVIDERS[p].label} API key · <a href={PROVIDERS[p].keyUrl} target="_blank" rel="noreferrer">get key</a></label>
-          <input type="password" value={keyOf(state, p)} placeholder={PROVIDERS[p].placeholder} onChange={(e) => update({ [KEY_OF[p]!]: e.target.value })} autoComplete="off" />
-        </div>
-      ))}
+      <div className="small muted">API keys are in <b>AI keys</b> at the bottom of this page.</div>
 
       {isDesktop() && <Credentials />}
 
@@ -130,10 +124,20 @@ export function Settings({ part, state, update }: { part: "settings" | "details"
       <div className="small muted">Everything is saved locally: on this device (browser storage) and in the laptop app's data folder. Nothing is uploaded except the prompts sent to Gemini.</div>
       <div className="actions">
         <button className="ghost" onClick={() => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" })); a.download = "autoresume-backup.json"; a.click(); }}>Export backup</button>
-        <label style={{ margin: 0 }}><span className="chip" style={{ cursor: "pointer" }}>Import backup</span>
+        <label style={{ margin: 0 }}><span className="btn">Import backup</span>
           <input type="file" accept="application/json" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f && await confirmDelete(`Replace everything in AutoResume with the backup "${f.name}"? Your current details, saved jobs and resumes are overwritten.`)) update(JSON.parse(await f.text())); }} />
         </label>
       </div>
+      <details className="keys-panel">
+        <summary>AI keys <span className="small muted">{(Object.keys(PROVIDERS) as Provider[]).filter((p) => KEY_OF[p] && keyOf(state, p)).length} of {(Object.keys(PROVIDERS) as Provider[]).filter((p) => KEY_OF[p]).length} saved</span></summary>
+        <div className="small muted">API keys are stored only on this device / your laptop. Signed-in Gemini and Claude need no key.</div>
+        {(Object.keys(PROVIDERS) as Provider[]).filter((p) => KEY_OF[p]).map((p) => (
+          <div key={p}>
+            <label>{PROVIDERS[p].label} API key · <a href={PROVIDERS[p].keyUrl} target="_blank" rel="noreferrer">get key</a></label>
+            <input type="password" value={keyOf(state, p)} placeholder={PROVIDERS[p].placeholder} onChange={(e) => update({ [KEY_OF[p]!]: e.target.value })} autoComplete="off" />
+          </div>
+        ))}
+      </details>
       </>)}
     </div>
   );
@@ -222,7 +226,7 @@ export function ModelPicker({ state, update }: { state: State; update: Update })
   const [showAll, setShowAll] = useState(false);
   const load = async () => {
     setHealth({});
-    if (!key) { setModels([]); setStatus("Add this provider's API key below to list its models."); return; }
+    if (!key) { setModels([]); setStatus("Add this provider's API key in AI keys at the bottom of Settings to list its models."); return; }
     setStatus("Loading models…");
     try {
       const [m, p] = await Promise.all([listModels(provider, key), priceTable()]);

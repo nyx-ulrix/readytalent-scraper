@@ -14,6 +14,41 @@ export type ListMode = "all" | "targets" | "saved" | "applied";
 
 /* ---------------- Jobs ---------------- */
 
+/** Deadline as a date: ReadyTalent writes "d/m/yyyy", job boards "yyyy-mm-dd". */
+const deadlineDate = (s: string) => {
+  const dmy = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (dmy) return new Date(dmy[3].length === 2 ? 2000 + +dmy[3] : +dmy[3], +dmy[2] - 1, +dmy[1]);
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? new Date(+iso[1], +iso[2] - 1, +iso[3]) : null;
+};
+
+/** With no job open, the right pane answers "what should I apply to next?": the listed jobs that close soonest. */
+function Overview({ jobs, onPick }: { jobs: Job[]; onPick: (j: Job) => void }) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const soon = jobs.map((j) => ({ j, d: deadlineDate(j.deadline || "") }))
+    .filter((x): x is { j: Job; d: Date } => !!x.d && x.d >= today && !x.j.expired)
+    .sort((a, b) => a.d.getTime() - b.d.getTime()).slice(0, 8);
+  const days = (d: Date) => Math.round((d.getTime() - today.getTime()) / 864e5);
+  return (
+    <div className="empty overview app-chrome">
+      <p>Pick a job to see its description, required skills and salary, then generate a tailored resume or cover letter.</p>
+      <h2>Closing soon</h2>
+      {soon.length ? (
+        <ul className="soon">
+          {soon.map(({ j, d }) => (
+            <li key={j.id}>
+              <button className="soon-row" onClick={() => onPick(j)}>
+                <span className="soon-t">{j.title}<span className="soon-c">{j.company}</span></span>
+                <span className="soon-d num">{days(d) === 0 ? "today" : days(d) === 1 ? "tomorrow" : `${days(d)} days`}<span className="soon-c">{d.toLocaleDateString("en-SG", { day: "numeric", month: "short" })}</span></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="soon-none">No deadlines in the jobs listed here.</p>}
+    </div>
+  );
+}
+
 export function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onCleared }: {
   mode: ListMode; jobs: Job[]; state: State; update: Update; sel: Job | null; setSel: (j: Job | null) => void;
   open: (kind: "resume" | "letter", jobId: string) => void; header?: React.ReactNode; onCleared?: () => void;
@@ -311,7 +346,7 @@ export function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onC
         {!shown.length && <div className="empty">{jobs.length ? "No matches." : { all: "No jobs yet. Use Find jobs to scrape ReadyTalent, search LinkedIn and Indeed, or paste a posting.", targets: "No jobs for this title yet. On the Find jobs tab, open it under \"Target a specific job title\" and press Search jobs like this.", saved: "Nothing saved yet. Use ♡ Save on any job.", applied: "No applications yet. Use \"Mark applied\" on a job you applied for." }[mode]}</div>}
       </aside>
       {sel ? <Detail job={sel} state={state} update={update} back={() => setSel(null)} open={open} /> : (
-        <div className="empty app-chrome">Pick a job to see its description, required skills and salary, then generate a tailored resume or cover letter.</div>
+        <Overview jobs={shown} onPick={setSel} />
       )}
     </div>
   );

@@ -359,7 +359,7 @@ ipcMain.handle("pdf:save", async (e, name) => {
 
 function createMainWindow() {
   mainWin = new BrowserWindow({
-    width: 1240, height: 840, minWidth: 800, title: "AutoResume", backgroundColor: "#ffffff",
+    width: 1240, height: 840, minWidth: 800, title: "AutoResume", backgroundColor: "#6a1fd0",
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
   });
   mainWin.setMenuBarVisibility(false); // Windows/Linux; macOS keeps its app menu (needed for Cmd+C / Cmd+V)

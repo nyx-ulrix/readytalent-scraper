@@ -11,6 +11,8 @@ import { Settings } from "./pages/Settings";
 type Tab = "jobs" | "find" | "targets" | "saved" | "applied" | "resume" | "details" | "settings";
 
 const TAB_LABEL: Record<Tab, string> = { jobs: "Jobs", find: "Find jobs", targets: "Targets", saved: "Saved", applied: "Applied", resume: "Resume", details: "Details", settings: "Settings" };
+/** Each screen is one window; its title bar takes one of the three panel colours, in turn along the menu. */
+const WINDOW: Record<Tab, "magenta" | "teal" | "orange"> = { jobs: "magenta", find: "teal", targets: "orange", saved: "magenta", applied: "teal", resume: "orange", details: "teal", settings: "orange" };
 
 export default function App() {
   const [state, update, ready] = useAppState();
@@ -34,14 +36,17 @@ export default function App() {
     <div className="layout">
       <DeleteDialog />
       <nav className="tabs app-chrome">
-        <span className="brand">AutoResume</span>
+        <span className="brand"><span aria-hidden="true">✦</span> AutoResume</span>
         {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
+          <button key={t} className={tab === t ? "on" : ""} aria-current={tab === t ? "page" : undefined} onClick={() => setTab(t)}>
             {TAB_LABEL[t]}{t === "targets" && targetJobs ? ` (${targetJobs})` : ""}{t === "saved" && savedJobs.length ? ` (${savedJobs.length})` : ""}{t === "applied" && appliedJobs.length ? ` (${appliedJobs.length})` : ""}
           </button>
         ))}
       </nav>
       <main>
+        <section className={`window win-${WINDOW[tab]}`} aria-labelledby="screen-title">
+        <header className="titlebar app-chrome"><h1 id="screen-title">{TAB_LABEL[tab]}</h1></header>
+        <div className="win-body">
         {tab === "jobs" && <Jobs mode="all" jobs={allJobs} onCleared={reloadJobs} {...common} {...selFor("jobs")} />}
         {tab === "find" && <FindPage jobs={jobs} setJobs={setJobs} boardJobs={boardJobs} setBoardJobs={setBoardJobs} state={state} update={update}
           onView={(j) => { if (j) selFor("jobs").setSel(j); setTab("jobs"); }} />}
@@ -52,6 +57,8 @@ export default function App() {
           openJob={(id) => { const j = allJobs.find((x) => x.id === id); if (j) { selFor("jobs").setSel(j); setTab("jobs"); } }} />}
         {tab === "details" && <Settings part="details" state={state} update={update} />}
         {tab === "settings" && <Settings part="settings" state={state} update={update} />}
+        </div>
+        </section>
       </main>
     </div>
   );

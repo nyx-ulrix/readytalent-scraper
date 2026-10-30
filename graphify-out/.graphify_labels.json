@@ -1,18 +1,11 @@
 {
-  "0": "Jobs.tsx",
   "1": "ground.ts",
   "2": "boards.cjs",
   "3": "package.json",
   "4": "ai.ts",
   "5": "main.cjs",
   "6": "Resume.tsx",
-  "7": "accountai.cjs",
   "8": "merge.ts",
   "9": "build",
-  "10": "scrape.test.cjs",
-  "11": "Details.tsx",
-  "12": "build job (windows/macos matrix)",
-  "13": "compilerOptions",
-  "14": "ref_node_assert",
-  "15": "vite.config.ts"
+  "13": "compilerOptions"
 }
