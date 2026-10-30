@@ -1,5 +1,6 @@
 {
-  "0": "store.ts",
+  "0": "Settings.tsx",
+  "4": "ai.ts",
   "7": "accountai.cjs",
   "10": "Laptop Data Folder (state.json, jobs.json, board-jobs.json, geocache.json, creds.bin, meta.json)",
   "11": "Details.tsx",
@@ -15,5 +16,6 @@
   "22": "Unsigned / Un-notarised App Install Workaround",
   "23": "Flow: Building and Releasing",
   "24": "Self-Check Test Suite (pnpm test)",
-  "25": "Markdown Resume Template Round Trip"
+  "25": "Markdown Resume Template Round Trip",
+  "26": "index.html (Vite entry, PWA manifest)"
 }

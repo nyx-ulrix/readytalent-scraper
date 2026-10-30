@@ -3,6 +3,7 @@
  * Uses the portal's own AWS gateway (`amazonUrl`) exactly like its search page does:
  *   LoadJobDetailsStudentDashboard / LoadPartTimeJobDetailsStudentDashboard -> list
  *   LoadJobDetailsForStudent -> description, requirements, skill set, pay
+ *   GetManageApplicationsForStudents -> your applications and their status (the My Applications page)
  * Must be self-contained: no closures over Node scope.
  */
 async function scrapeInPage(knownIds) {
@@ -104,6 +105,27 @@ async function scrapeInPage(knownIds) {
       scrapedAt: new Date().toISOString(),
     });
   }
-  return { jobs: out, activeIds: [...seen], meta };
+  // Your applications, as the My Applications page loads them. That page joins its parameters with a literal
+  // "&amp;" (an escaping quirk in its template), so if plain "&" gets nothing back, ask exactly as it does.
+  const applications = [];
+  const contactId = sessionStorage.getItem("ContactId") || localStorage.getItem("ContactId") || "";
+  if (contactId) {
+    const appAccess = userType === "Alumni" ? "<filter type='and'><condition attribute='sit_limitedfullaccess' operator='eq' value='2' /></filter > " : "";
+    const ask = (sep) => call(["requestname=GetManageApplicationsForStudents", `ContactId=${contactId}`, `accessLevelCondition=${appAccess}`, `loginaccessType=${userType}`].join(sep));
+    let apps = await ask("&");
+    if (!Array.isArray(apps)) apps = await ask("&amp;");
+    for (const a of Array.isArray(apps) ? apps : []) {
+      if (!a._sit_employmentlisting_value) continue;
+      applications.push({
+        jobId: a._sit_employmentlisting_value,
+        status: fmt(a, "sit_applicationstatus"),
+        appliedAt: a.sit_dateapplied || "",
+        title: fmt(a, "_sit_employmentlisting_value"),
+        company: fmt(a, "_sit_company_value"),
+        type: fmt(a, "_sit_employmenttype_value"),
+      });
+    }
+  }
+  return { jobs: out, activeIds: [...seen], meta, applications };
 }
 module.exports = scrapeInPage;

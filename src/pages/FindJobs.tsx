@@ -180,7 +180,10 @@ export function ReadyTalentScrape({ jobs, setJobs, state, update, onView }: { jo
       const r = await window.desktop!.scrape();
       setJobs(await fetchJobs());
       setMeta(await fetchMeta());
-      setStatus(`Done: ${r.added} new, ${r.total} total.`);
+      const marked = [r.markedApplied ? `${r.markedApplied} marked applied` : "", r.markedRejected ? `${r.markedRejected} marked rejected` : ""].filter(Boolean).join(", ");
+      setStatus(`Done: ${r.added} new, ${r.total} total.${r.applications !== undefined ? ` ${r.applications} applications on ReadyTalent${marked ? `: ${marked}` : ", all marked already"}.` : ""}`);
+      // The server wrote the marks into your saved state; fetch it now rather than at the next 30 s refresh.
+      if (marked) window.dispatchEvent(new Event("focus"));
     } catch (e) { setStatus((e as Error).message.replace(/^Error invoking remote method '[^']+': Error: /, "")); }
     setBusy(false); setProg(null);
   };

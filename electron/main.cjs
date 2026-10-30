@@ -12,6 +12,7 @@ const os = require("node:os");
 const scrapeInPage = require("./scrape.cjs");
 const { searchBoards, stopBoards, showBoardWindow, closeBoardWindow, scrapePosting, pageText } = require("./boards.cjs");
 const accountAi = require("./accountai.cjs");
+const { applyApplications } = require("./applications.cjs");
 
 const PORT = 4242;
 const PORTAL = "https://readytalent2.singaporetech.edu.sg/";
@@ -289,9 +290,17 @@ ipcMain.handle("rt:scrape", async (e) => {
     const r = await wc.executeJavaScript(`(${scrapeInPage.toString()})(${JSON.stringify(jobs.map((j) => j.id))})`, true);
     const active = new Set(r.activeIds);
     const merged = [...r.jobs, ...jobs].map((j) => ({ ...j, expired: !active.has(j.id) }));
+    // A job you applied to that is no longer listed still gets a row, so the Applied tab can show it.
+    const have = new Set(merged.map((j) => j.id));
+    for (const a of r.applications || []) {
+      if (have.has(a.jobId)) continue;
+      have.add(a.jobId);
+      merged.push({ id: a.jobId, title: a.title || "ReadyTalent job", company: a.company, type: a.type, salary: "", location: "", skills: [], description: "", requirements: "",
+        deadline: "", posted: "", vacancies: "", website: "", companyProfile: "", active: false, expired: true, scrapedAt: new Date().toISOString() });
+    }
     writeJson("jobs.json", merged);
     if (r.meta.employmentTypes.length || r.meta.programmes.length) writeJson("meta.json", r.meta);
-    return { added: r.jobs.length, total: merged.length };
+    return { added: r.jobs.length, total: merged.length, applications: (r.applications || []).length, ...syncApplications(r.applications || []) };
   } finally {
     wc.off("console-message", onMsg);
     // Don't leave a signed-in portal page running hidden: when its session expires it asks you to log in again.
@@ -299,6 +308,13 @@ ipcMain.handle("rt:scrape", async (e) => {
     if (readCreds() && rtWin && !rtWin.isDestroyed() && !rtWin.isVisible()) rtWin.destroy();
   }
 });
+
+/** Applied / rejected marks from your ReadyTalent applications, written with a new revision. */
+function syncApplications(apps) {
+  const { state, markedApplied, markedRejected } = applyApplications(readJson("state.json", null), apps);
+  if (state) writeJson("state.json", state);
+  return { markedApplied, markedRejected };
+}
 
 /** Skill names to look for in board / pasted postings: ReadyTalent skill names + the user's own skills. */
 function skillDictionary() {

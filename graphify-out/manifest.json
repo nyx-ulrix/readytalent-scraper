@@ -1,8 +1,8 @@
 {
   "electron/main.cjs": {
-    "mtime": 1793323635.7258966,
-    "seen": 1793326625.8507962,
-    "ast_hash": "04485e38745d37972ccfc560a6b2021e",
+    "mtime": 1793327891.6022115,
+    "seen": 1793327905.1157131,
+    "ast_hash": "813065afc3dd8929614f69293e9bd782",
     "semantic_hash": ""
   },
   "electron/preload.cjs": {
@@ -12,21 +12,21 @@
     "semantic_hash": "1375e4db5583f4e807b3232658102838"
   },
   "electron/scrape.cjs": {
-    "mtime": 1793323624.678233,
-    "seen": 1793326625.8507993,
-    "ast_hash": "9b6c5f8a0d5ee0c7a3e1fc646bf530b5",
-    "semantic_hash": "9b6c5f8a0d5ee0c7a3e1fc646bf530b5"
+    "mtime": 1793327891.5605247,
+    "seen": 1793327905.115717,
+    "ast_hash": "059f4ab78300233ddfb80a3e1d80e077",
+    "semantic_hash": ""
   },
   "electron/scrape.test.cjs": {
-    "mtime": 1793323624.678233,
-    "seen": 1793326625.8508003,
-    "ast_hash": "51ae87df162e2d7b13b21789a2ff66e6",
-    "semantic_hash": "51ae87df162e2d7b13b21789a2ff66e6"
+    "mtime": 1793327891.5605543,
+    "seen": 1793327905.1157184,
+    "ast_hash": "f8e5947baf5e5ea991110e2d8799e6fc",
+    "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1793323624.680567,
-    "seen": 1793326625.850802,
-    "ast_hash": "a0b2622a891668fff50f7e0ce55adc0f",
+    "mtime": 1793327891.5636344,
+    "seen": 1793327905.1157203,
+    "ast_hash": "fece17807fab199a2e8073daf9352cec",
     "semantic_hash": ""
   },
   "src/App.tsx": {
@@ -54,10 +54,10 @@
     "semantic_hash": "f648ddcac2a8144aaec6ae6eb7f73c9b"
   },
   "src/types.ts": {
-    "mtime": 1793323624.6835668,
-    "seen": 1793326625.8508356,
-    "ast_hash": "b545a0337e2323b775ac73291b205fe9",
-    "semantic_hash": "b545a0337e2323b775ac73291b205fe9"
+    "mtime": 1793327891.5606437,
+    "seen": 1793327905.1157584,
+    "ast_hash": "42bc4d5fb6b5afe5b033f6072159f809",
+    "semantic_hash": ""
   },
   "tsconfig.json": {
     "mtime": 1793323624.6839907,
@@ -246,15 +246,15 @@
     "semantic_hash": ""
   },
   "src/pages/FindJobs.tsx": {
-    "mtime": 1793323624.683263,
-    "seen": 1793326625.850826,
-    "ast_hash": "f63c49f8525c8b786cf69b92254d4393",
+    "mtime": 1793327891.5605543,
+    "seen": 1793327905.1157482,
+    "ast_hash": "dd941fe9ebe344243cd24402bf6537c3",
     "semantic_hash": ""
   },
   "src/pages/Jobs.tsx": {
-    "mtime": 1793323635.7174845,
-    "seen": 1793326625.8508272,
-    "ast_hash": "8c754a6d632e5ddc505b564b7bfbd552",
+    "mtime": 1793327891.5606437,
+    "seen": 1793327905.1157494,
+    "ast_hash": "601b08645800de6b1ebfa53616c4d544",
     "semantic_hash": ""
   },
   "src/pages/ResumeTab.tsx": {
@@ -303,6 +303,18 @@
     "mtime": 1793323624.681625,
     "seen": 1793326625.8508606,
     "ast_hash": "b741b969f4d1584a7df83d30465e994a",
+    "semantic_hash": ""
+  },
+  "electron/applications.cjs": {
+    "mtime": 1793327891.5604444,
+    "seen": 1793327905.1157053,
+    "ast_hash": "d50f38f7d9d9a99a3927294af7737b22",
+    "semantic_hash": ""
+  },
+  "electron/applications.test.cjs": {
+    "mtime": 1793327891.560499,
+    "seen": 1793327905.1157079,
+    "ast_hash": "933803a6a8938926ea0c3a6f19e138cb",
     "semantic_hash": ""
   }
 }

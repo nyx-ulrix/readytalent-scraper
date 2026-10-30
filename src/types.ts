@@ -44,6 +44,8 @@ export type State = {
   applied: Record<string, string>;
   /** Applications the user was rejected from: job id -> ISO date (the job also counts as applied). */
   rejected?: Record<string, string>;
+  /** ReadyTalent's own status for each of your applications ("Applied", "Shortlisted", "Offered"…), from the last scrape. */
+  appStatus?: Record<string, string>;
   /** Jobs you marked "Not currently hiring": job id -> ISO date. */
   notHiring?: Record<string, string>;
   /** When each tailored resume / cover letter was last generated: "resume:<jobId>" | "letter:<jobId>" -> ISO date. */
@@ -135,7 +137,7 @@ declare global {
   interface Window {
     desktop?: {
       openPortal: () => Promise<void>;
-      scrape: () => Promise<{ added: number; total: number }>;
+      scrape: () => Promise<{ added: number; total: number; applications?: number; markedApplied?: number; markedRejected?: number }>;
       savePdf: (name: string) => Promise<boolean>;
       searchBoards: (opts: { terms: string[] } & State["boardSearch"]) => Promise<{ found: number; added: number; total: number; errors: string[]; ids?: string[] }>;
       stopBoards: () => Promise<void>;

@@ -70,6 +70,8 @@ export function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onC
   const [onlySaved, setOnlySaved] = keep("onlySaved", false);
   const [appliedFilter, setAppliedFilter] = keep<"" | "applied" | "open" | "waiting" | "rejected">("appliedFilter", "");
   const rejectedOn = (id: string) => state.rejected?.[id];
+  /** ReadyTalent's status word for an application ("Shortlisted", "Offered"…), or plain "Applied". */
+  const appStatusOf = (id: string) => { const st = state.appStatus?.[id] || ""; return st && !/^applied$/i.test(st) ? st : "Applied"; };
   const [hiringFilter, setHiringFilter] = keep<"" | "hiring" | "not">("hiringFilter", "");
   const notHiring = (id: string) => !!state.notHiring?.[id];
   const [meta, setMeta] = useState<Meta>(DEFAULT_META);
@@ -338,7 +340,7 @@ export function Jobs({ mode, jobs, state, update, sel, setSel, open, header, onC
           <div key={j.id} data-working={taskOf(j.id).running.length ? "1" : undefined} className={`job-row ${sel?.id === j.id ? "on" : ""}${hidden.has(j.id) ? " removed" : ""}`} onClick={() => setSel(j)}>
             {hidesRemoved && <button className="ghost small row-x" title={hidden.has(j.id) ? "Bring this job back" : "Not interested: remove from the list"} aria-label={hidden.has(j.id) ? "Restore job" : "Remove job"}
               onClick={(ev) => { ev.stopPropagation(); update((s) => { const h = new Set(s.hidden || []); if (h.has(j.id)) h.delete(j.id); else h.add(j.id); return { ...s, hidden: [...h] }; }); if (sel?.id === j.id && !hidden.has(j.id)) setSel(null); }}>{hidden.has(j.id) ? "↺" : "✕"}</button>}
-            <div className="t">{taskOf(j.id).running.length ? <span className="applied-tag working-tag">✦ working</span> : null}{notHiring(j.id) ? <span className="applied-tag paused-tag">⏸ Not hiring</span> : null}{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ Applied</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
+            <div className="t">{taskOf(j.id).running.length ? <span className="applied-tag working-tag">✦ working</span> : null}{notHiring(j.id) ? <span className="applied-tag paused-tag">⏸ Not hiring</span> : null}{rejectedOn(j.id) ? <span className="applied-tag rejected-tag">✗ Rejected</span> : state.applied?.[j.id] ? <span className="applied-tag">✓ {appStatusOf(j.id)}</span> : null}{state.saved.includes(j.id) ? "♥ " : ""}{j.title}</div>
             <div className="m">{j.company}</div>
             <div className="m">{[sourceOf(j), j.workplace, j.type, j.salary, j.expired ? "expired" : "", mode === "applied" && state.applied?.[j.id] ? `applied ${new Date(state.applied[j.id]).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}` : "", distOf(j) !== null ? `📍 ${formatKm(distOf(j)!)}` : ""].filter(Boolean).join(" · ")}</div>
           </div>
